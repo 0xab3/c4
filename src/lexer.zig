@@ -7,9 +7,6 @@ const ArrayListManaged = std.array_list.Managed;
 
 const strings = @import("strings.zig");
 const SourceContext = @import("ast.zig").SourceContext;
-const libc = @cImport({
-    @cInclude("stdio.h");
-});
 
 const keywords = [_]struct { []const u8, TokenKind }{
     .{ "proc", .ProcDecl },
@@ -156,15 +153,15 @@ pub const TokenKind = union(enum) {
             .Ident => "ident",
 
             .Op => |op| switch (op) {
-                .Add =>  "+",
-                .Sub =>  "-",
-                .Mul =>  "*",
-                .Div =>  "/",
-                .Ass =>  "=",
-                .AddAss =>  "+=",
-                .SubAss =>  "-=",
-                .MulAss =>  "*=",
-                .DivAss =>  "/=",
+                .Add => "+",
+                .Sub => "-",
+                .Mul => "*",
+                .Div => "/",
+                .Ass => "=",
+                .AddAss => "+=",
+                .SubAss => "-=",
+                .MulAss => "*=",
+                .DivAss => "/=",
                 .Eq => "==",
                 .Lt => "<",
                 .Gt => ">",
@@ -214,7 +211,10 @@ pub const Token = struct {
         const current_token_start = (self.source.ptr - current_line.ptr);
 
         std.debug.print("error: unexpected token: \"{s}\"\n", .{current_line});
-        _ = libc.printf("error:%*s^\n", 20 + (current_token_start), "");
+        std.log.err("{[value]s: >[width]}^\n", .{
+            .value = "",
+            .width = 20 + current_token_start,
+        });
     }
 };
 
@@ -255,10 +255,12 @@ pub const Lexer = struct {
             const consumed_length, const token_kind = TokenKind.from_str(program) catch |err| {
                 switch (err) {
                     else => {
-
                         // @TODO(shahazd): better squigly line error reporting shit
                         std.debug.print("error: failed to parse token: \"{s}\"\n", .{current_line});
-                        _ = libc.printf("error:%*s^\n", 25 + (current_token_start), "");
+                        std.log.err("{[value]s: >[width]}^\n", .{
+                            .value = "",
+                            .width = 20 + current_token_start,
+                        });
                         return err;
                     },
                 }

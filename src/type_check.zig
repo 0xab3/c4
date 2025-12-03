@@ -4,10 +4,6 @@ const Ast = @import("ast.zig");
 const assert = std.debug.assert;
 const SourceContext = Ast.SourceContext;
 
-const libc = @cImport({
-    @cInclude("stdio.h");
-});
-
 allocator: Allocator,
 context: SourceContext,
 const Self = @This();
@@ -243,7 +239,10 @@ pub fn type_check_field_expr(
                 self.context.print_loc(plex_type_it.type);
                 self.context.print_loc(prev_fld.kind.Member);
                 // ^ force because we only update it when it's not deref
-                _ = libc.printf("error:%*s^\n", 20 + @intFromPtr(plex_type_it.type.ptr), "");
+                std.log.err("{[value]s: >[width]}^\n", .{
+                    .value = "",
+                    .width = 20 + @intFromPtr(plex_type_it.type.ptr),
+                });
             }
             plex_type_it.info.ptr_depth -= 1;
             continue;

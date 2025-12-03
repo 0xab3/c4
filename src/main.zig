@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const io = @import("io/linux.zig");
-const nob = @import("nob.zig");
 
 const ArgParse = @import("arg_parse.zig");
 
@@ -10,19 +9,36 @@ const Parser = @import("parser.zig").Parser;
 const SourceContext = @import("ast.zig").SourceContext;
 const TypeCheck = @import("./type_check.zig");
 const CodeGen = @import("./codegen/x64_gas_linux.zig");
+const StringBuilder = @import("string_builder.zig");
 
-pub fn build_asm_file(file_path: []const u8, out_path: []const u8, is_object_only: bool, object_files: std.array_list.Managed([]const u8)) void {
-    var cmd: nob.Cmd = nob.Cmd{};
-    const obj_filename = nob.temp_sprintf("%s.o", file_path.ptr);
-    nob.da_append_many([*c]const u8, &cmd, &[_][*c]const u8{ "as","-g", file_path.ptr, "-o", if (is_object_only) out_path.ptr else obj_filename });
-    _ = nob.cmd_run_opt(&cmd, .{});
-    if (is_object_only) return;
-    nob.da_append_many([*c]const u8, &cmd, &[_][*c]const u8{ "gcc", "-g", obj_filename });
-    for (object_files.items) |object_file| {
-        nob.da_append([*c]const u8, &cmd, object_file.ptr);
+const nob = @import("nob.zig");
+
+pub fn build_asm_file(allocator: std.mem.Allocator, file_path: []const u8, out_path: []const u8, is_object_only: bool, object_files: std.array_list.Managed([]const u8)) !void {
+    var cmd: nob.Cmd = .init(allocator);
+    var temp_builder = StringBuilder.init(allocator);
+    const obj_filename = try temp_builder.print_fmt("{s}.o", .{ file_path });
+
+    try cmd.append_many(&[_][]const u8{ "as", "-g", file_path, "-o", if (is_object_only) out_path else obj_filename });
+
+    var ret = try cmd.run();
+    if (ret.Exited != 0) {
+        std.log.err("failed to run command \"{s}\"!\n", .{try std.mem.join(allocator, " ", cmd.inner.items)});
+        unreachable;
     }
-    nob.da_append_many([*c]const u8, &cmd, &[_][*c]const u8{ "-o", out_path.ptr });
-    _ = nob.cmd_run_opt(&cmd, .{});
+    cmd.reset();
+    if (is_object_only) return;
+
+    try cmd.append_many(&[_][]const u8{ "gcc", "-g", obj_filename });
+    for (object_files.items) |object_file| {
+        try cmd.append(object_file);
+    }
+    try cmd.append_many( &[_][]const u8{"-o", out_path });
+    ret = try cmd.run();
+    if (ret.Exited != 0) {
+        std.log.err("failed to run command \"{s}\"!\n", .{try std.mem.join(allocator, " ", cmd.inner.items)});
+        unreachable;
+    }
+    cmd.reset();
 }
 
 pub fn main() !void {
@@ -61,5 +77,5 @@ pub fn main() !void {
 
     try io.write_entire_file(asm_filename, code_gen.program_builder.string.items);
 
-    build_asm_file(asm_filename, args.output_filename, args.object_only, args.link_object_filename);
+    try build_asm_file(allocator, asm_filename, args.output_filename, args.object_only, args.link_object_filename);
 }

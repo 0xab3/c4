@@ -4,8 +4,9 @@ const CSourceFile = std.Build.Module.CSourceFile;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{
+        .preferred_optimize_mode = .Debug,
+    });
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -18,12 +19,6 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
-    exe.addIncludePath(b.path("./src"));
-
-    exe.addCSourceFile(.{.file = b.path("./src/nob.c")});
-
-    exe.linkLibC();
-
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -33,7 +28,7 @@ pub fn build(b: *std.Build) void {
     const step = b.step("run", "Run the program");
 
     step.dependOn(&run_cmd.step);
-    if (b.args != null){
+    if (b.args != null) {
         run_cmd.addArgs(b.args.?);
     }
 

@@ -165,8 +165,6 @@ pub fn compile_field_access(
                 expr_as_var.offset -= fld_offset;
                 expr_as_var.size = fld_size;
             },
-            // .Register => {},
-            // .Var => {},
             else => unreachable,
         }
         ret, expr_compiled = try self.compiled_expr_to_asm(module, block, storage, ret, register, register_size);
