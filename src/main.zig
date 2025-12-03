@@ -16,14 +16,14 @@ const nob = @import("nob.zig");
 pub fn build_asm_file(allocator: std.mem.Allocator, file_path: []const u8, out_path: []const u8, is_object_only: bool, object_files: std.array_list.Managed([]const u8)) !void {
     var cmd: nob.Cmd = .init(allocator);
     var temp_builder = StringBuilder.init(allocator);
-    const obj_filename = try temp_builder.print_fmt("{s}.o", .{ file_path });
+    const obj_filename = try temp_builder.print_fmt("{s}.o", .{file_path});
 
     try cmd.append_many(&[_][]const u8{ "as", "-g", file_path, "-o", if (is_object_only) out_path else obj_filename });
 
     var ret = try cmd.run();
     if (ret.Exited != 0) {
         std.log.err("failed to run command \"{s}\"!\n", .{try std.mem.join(allocator, " ", cmd.inner.items)});
-        unreachable;
+        return;
     }
     cmd.reset();
     if (is_object_only) return;
@@ -32,11 +32,11 @@ pub fn build_asm_file(allocator: std.mem.Allocator, file_path: []const u8, out_p
     for (object_files.items) |object_file| {
         try cmd.append(object_file);
     }
-    try cmd.append_many( &[_][]const u8{"-o", out_path });
+    try cmd.append_many(&[_][]const u8{ "-o", out_path });
     ret = try cmd.run();
     if (ret.Exited != 0) {
         std.log.err("failed to run command \"{s}\"!\n", .{try std.mem.join(allocator, " ", cmd.inner.items)});
-        unreachable;
+        return;
     }
     cmd.reset();
 }

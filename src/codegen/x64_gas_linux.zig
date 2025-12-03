@@ -565,7 +565,7 @@ pub fn compile_expr_bin_op(self: *Self, module: *Ast.Module, block: *Ast.Block, 
                         const mnemonic = get_int_mnemonic_based_on_size(@intCast(ret_size));
                         _ = try self.program_builder.append_fmt("   movz{s}l {s}, %{s} # extending\n", .{ mnemonic, compiled_expr, lhs_size_reg });
                     } else if (ret_size == 4) {
-                        _ = try self.program_builder.append_fmt("   movl %{s}, %{s} # extending bruh\n", .{ lhs_size_reg, lhs_size_reg });
+                        // _ = try self.program_builder.append_fmt("   movl %{s}, %{s} # extending bruh\n", .{ lhs_size_reg, lhs_size_reg });
                     }
                     const rhs_compiled = try self.scratch_buffer.append_fmt("%{s}", .{lhs_size_reg});
                     ret = .{ .Register = .{ .expr = "unreachable this shit #assignment", .size = ret.Register.size } };
