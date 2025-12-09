@@ -85,7 +85,10 @@ fn get_register_based_on_size(self: *Self, register: []const u8, size: usize) []
         2 => self.scratch_buffer.append_fmt("{s}x", .{register}) catch unreachable,
         4 => self.scratch_buffer.append_fmt("e{s}x", .{register}) catch unreachable,
         8 => self.scratch_buffer.append_fmt("r{s}x", .{register}) catch unreachable,
-        else => unreachable,
+        else => {
+            std.debug.print("size is this {}\n", .{size});
+            unreachable;
+        },
     };
 }
 
@@ -260,10 +263,11 @@ pub fn compile_expr(self: *Self, module: *Ast.Module, block: *Ast.Block, expr: *
         },
         .NoOp => {},
         .Var => |expr_as_var| {
-            const stack_var = block.find_variable(expr_as_var);
-            const stack_offset = stack_var.?.offset;
+            const var_type, const stack_var = block.find_variable(expr_as_var).?;
+            _ = var_type;
+            const stack_offset = stack_var.offset;
 
-            return .{ .Var = .{ .offset = stack_offset, .size = stack_var.?.meta.size } };
+            return .{ .Var = .{ .offset = stack_offset, .size = stack_var.meta.size } };
         },
         .FieldAccess => |*field_access| {
             // TODO(shahzad): @fixme we don't support pointers to plex :sob:
@@ -321,7 +325,7 @@ pub fn compile_expr(self: *Self, module: *Ast.Module, block: *Ast.Block, expr: *
                     .Field => @panic("todo!"),
                 }
             }
-            const proc_decl = module.get_proc_decl(call_expr.name);
+            var proc_decl = module.get_proc_decl(call_expr.name);
 
             // TODO(shahzad): @hack cause we can also define our own put char
             if (proc_decl != null) {
@@ -332,7 +336,7 @@ pub fn compile_expr(self: *Self, module: *Ast.Module, block: *Ast.Block, expr: *
             } else {
                 // @NOTE(shahzad): if the proc is not in decl_array that means it is not extern, which means
                 // that it can only be a defined proc, calling undeclared proc is handled by the parser
-                assert(module.get_proc_def(call_expr.name) != null);
+                proc_decl = module.get_proc_def(call_expr.name).?.decl;
 
                 _ = try self.program_builder.append_fmt("   xor %rax, %rax\n", .{});
                 _ = try self.program_builder.append_fmt("   call {s}\n", .{call_expr.name});
@@ -673,8 +677,10 @@ pub fn compile_stmt(self: *Self, module: *Ast.Module, block: *Ast.Block, stateme
                     .lhs = &var_as_expr,
                     .rhs = &rhs_as_expr,
                 };
-                const stack_var = block.find_variable(stmt.name);
-                var storage: Storage = .init(.Stack, stack_var.?.offset);
+
+                const var_type, const stack_var = block.find_variable(stmt.name).?;
+                assert(var_type == .Stack);
+                var storage: Storage = .init(.Stack, stack_var.offset);
                 _ = try self.compile_expr_bin_op(module, block, &bin_op_expr, &storage);
             }
         },
@@ -684,11 +690,18 @@ pub fn compile_stmt(self: *Self, module: *Ast.Module, block: *Ast.Block, stateme
         else => {},
     }
 }
-fn compile_proc_prelude(self: *Self, procedure: *Ast.ProcDef) !void {
+fn compile_proc_prologue(self: *Self, procedure: *Ast.ProcDef) !void {
     // @TODO(shahzad): what about the arguments :sob::sob:
     _ = try self.program_builder.append_fmt("{s}:\n", .{procedure.decl.name});
     _ = try self.program_builder.append_fmt("   mov %rsp, %rbp\n", .{});
     _ = try self.program_builder.append_fmt("   sub ${}, %rsp\n", .{procedure.total_stack_var_offset});
+    for (procedure.decl.args_list.items, 0..) |arg, i| {
+        const register = self.get_callcov_arg_register( i, arg.meta.size);
+        _ = try self.program_builder.append_fmt("   mov %{s}, -{}(%rbp)\n", .{  register, arg.offset });
+    }
+
+    //for (procedure.decl.args_list.items) |arguments| {
+    //}
 }
 fn compile_block(self: *Self, module: *Ast.Module, block: *Ast.Block) anyerror!void {
     for (block.stmts.items) |*statement| {
@@ -696,11 +709,11 @@ fn compile_block(self: *Self, module: *Ast.Module, block: *Ast.Block) anyerror!v
     }
 }
 pub fn compile_proc(self: *Self, module: *Ast.Module, procedure: *Ast.ProcDef) !void {
-    try self.compile_proc_prelude(procedure);
+    try self.compile_proc_prologue(procedure);
     try self.compile_block(module, procedure.block);
-    try self.compile_proc_ending(procedure);
+    try self.compile_proc_epilogue(procedure);
 }
-fn compile_proc_ending(self: *Self, procedure: *Ast.ProcDef) !void {
+fn compile_proc_epilogue(self: *Self, procedure: *Ast.ProcDef) !void {
     _ = try self.program_builder.append_fmt("   add ${}, %rsp\n", .{procedure.total_stack_var_offset});
     std.log.debug("@TODO(shahzad): add return value :sob:", .{});
     _ = try self.program_builder.append_fmt("   xor %rax, %rax\n", .{});
@@ -724,10 +737,12 @@ pub fn compile_mod(self: *Self, module: *Ast.Module) !void {
         _ = try self.program_builder.append_fmt(".global main\n", .{});
         // @NOTE(shahzad): we linking with crt so we don't care much about anything for now
     }
-    for (module.proc_decls.items) |*proc_decl| {
+    var proc_decl_iter = module.proc_decls.iterator(0);
+    while (proc_decl_iter.next()) |proc_decl| {
         _ = try self.program_builder.append_fmt(".extern {s}\n", .{proc_decl.name});
     }
-    for (module.proc_defs.items) |*proc| {
-        try self.compile_proc(module, proc);
+    var proc_def_iter = module.proc_defs.iterator(0);
+    while (proc_def_iter.next()) |proc_def| {
+        try self.compile_proc(module, proc_def);
     }
 }

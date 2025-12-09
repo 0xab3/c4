@@ -264,18 +264,18 @@ pub fn type_check_field_expr(
 }
 // check if the expr is correct with types and shit and also check if it can resolve to the given type
 pub fn type_check_expr(self: *Self, module: *Ast.Module, block: *Ast.Block, expression: *Ast.Expression) !Ast.ExprType {
-    //@TODO(shahzad): this is ass brother please fix it
+    //TODO(shahzad): this is ass brother please fix it
     switch (expression.*) {
         .Var => |expr_as_var| {
-            const variable = block.find_variable(expr_as_var);
-            const n_lines, _ = self.context.get_loc(expr_as_var);
-            if (variable == null) {
+            const var_position, const variable = block.find_variable(expr_as_var) orelse {
+                const n_lines, _ = self.context.get_loc(expr_as_var);
+
                 std.log.err("{s}:{}:{}: use of undefined variable '{s}'", .{ self.context.filename, n_lines, 0, expr_as_var });
                 self.context.print_loc(expr_as_var);
                 return Error.VariableNotDefined;
-            }
-
-            return variable.?.decl.type.?;
+            };
+            _ = var_position;
+            return variable.decl.type.?;
         },
         .BinOp => |expr_as_bin_op| {
             // @NOTE(shahzad)!!: PRECEDENCE IS REQUIRED FOR TYPE CHECKING TO PROPERLY WORK!!!!
@@ -406,7 +406,7 @@ pub fn type_check_stmt(self: *Self, module: *Ast.Module, block: *Ast.Block, stat
     // @TODO(shahzad)!!!!: check mutability on assignments
     switch (statement.*) {
         .VarDefStack, .VarDefStackMut => |stmt_var_def_stack| {
-            const variable = block.find_local_variable(stmt_var_def_stack.name);
+            const variable = block.find_scope_variable(stmt_var_def_stack.name);
             if (variable != null) {
                 const n_lines, const line = self.context.get_loc(variable.?.decl.name);
 
@@ -483,8 +483,10 @@ pub fn type_check_block(self: *Self, module: *Ast.Module, block: *Ast.Block, blo
     return .{ .type = "void", .info = .{ .ptr_depth = 0 } };
 }
 pub fn type_check_proc(self: *Self, module: *Ast.Module, procedure: *Ast.ProcDef) !void {
-    const return_type = try self.type_check_block(module, procedure.block, 0);
-    procedure.total_stack_var_offset = procedure.block.stack_var_offset;
+    const args_offset = if (procedure.decl.args_list.getLastOrNull()) |elem| elem.offset else 0;
+
+    const return_type = try self.type_check_block(module, procedure.block, args_offset);
+    procedure.total_stack_var_offset = procedure.block.stack_var_offset + args_offset;
     if (can_type_resolve(procedure.decl.return_type, return_type) != true) {
         const n_lines, _ = self.context.get_loc(procedure.decl.return_type.type);
         std.log.err("{s}:{}: caller expects '{s}' but procedure '{s}' returns '{s}'\n", .{
@@ -541,12 +543,13 @@ pub fn type_check_plex_decl(self: *Self, module: *const Ast.Module, plex_decl: *
     }
     plex_decl.size = total_field_size;
 }
-pub fn type_check_argument_list(self: *Self, proc_decl: *Ast.ProcDecl) bool {
+pub fn type_check_argument_list(self: *Self, module: *const Ast.Module, proc_decl: *Ast.ProcDecl) bool {
     var err = false;
+    var offset: usize = 0;
     // TODO(shahzad): @perf use hashmap or smth idk
     for (0..proc_decl.args_list.items.len) |idx| {
+        var arg = &proc_decl.args_list.items[idx];
         for (idx..proc_decl.args_list.items.len) |idx2| {
-            const arg = &proc_decl.args_list.items[idx];
             const arg2 = &proc_decl.args_list.items[idx2];
             if (arg != arg2 and std.mem.eql(u8, arg.*.decl.name, arg2.*.decl.name)) {
                 const n_lines, const line = self.context.get_loc(arg.*.decl.name);
@@ -558,11 +561,24 @@ pub fn type_check_argument_list(self: *Self, proc_decl: *Ast.ProcDecl) bool {
                 err = true;
             }
         }
+        // TODO(shahzad)!!!!: @refactor add errors and shit
+        const size = self.get_type_size_if_exists(module, &arg.decl.type.?) catch return false;
+        if (size == null) {
+            // NOTE(shahzad): null size means that the type exists but it hasn't been type checked
+            // yet... this will only happen for plex but we are typechecking the plexes before
+            // typechecking the proc which means this won't ever be null
+            unreachable;
+        }
+        arg.meta.size = @intCast(size.?);
+        arg.meta.is_mut = 1;
+        // TODO(shahzad)!!!: we don't give a shit about anything other than predefined types :sobs:
+        offset += if (size.? <= 4) 4 else 8;
+        arg.offset = @intCast(offset);
     }
     return err;
 }
 pub fn type_check_proc_decl(self: *Self, module: *Ast.Module, proc_decl: *Ast.ProcDecl) !void {
-    if (self.type_check_argument_list(proc_decl)) return Error.VariableRedefinition;
+    if (self.type_check_argument_list(module, proc_decl)) return Error.VariableRedefinition;
     const return_size = try self.get_type_size_if_exists(module, &proc_decl.return_type);
     // NOTE(shahzad): this will happen when extern plex is used
     if (return_size == null) @panic("size is defined but not typechecked!");
@@ -574,10 +590,14 @@ pub fn type_check_mod(self: *Self, module: *Ast.Module) !void {
         try self.type_check_plex_decl(module, plex_decl, null);
     }
     // @TODO(shahzad): type check declarations only
-    for (module.proc_decls.items) |*proc_decl| {
+
+    var proc_decl_iter = module.proc_decls.iterator(0);
+    while (proc_decl_iter.next()) |proc_decl| {
         try self.type_check_proc_decl(module, proc_decl);
     }
-    for (module.proc_defs.items) |*proc| {
-        try self.type_check_proc(module, proc);
+    var proc_def_iter = module.proc_defs.iterator(0);
+    while (proc_def_iter.next()) |proc_def| {
+        try self.type_check_proc_decl(module, &proc_def.decl);
+        try self.type_check_proc(module, proc_def);
     }
 }

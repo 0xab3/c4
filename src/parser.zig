@@ -125,15 +125,16 @@ pub const Parser = struct {
         };
         switch (self.tokens.peek(0).?.kind) {
             .Semi => {
-                try self.module.proc_decls.append(proc_decl);
+                try self.module.proc_decls.append( self.allocator,proc_decl);
                 self.tokens.advance(1);
             },
             .CurlyOpen => {
                 // @TODO(shahzad)!!!!!: instead of duplicating the procedure declaration
                 // only store it in the ProcDecl array and attach an index to it that specifies
                 // the procDef
-                const code_block = try self.parse_block();
-                try self.module.proc_defs.append(.init(proc_decl, code_block));
+                const proc_def = try self.module.proc_defs.addOne(self.allocator);
+                const code_block = try self.parse_block(&proc_def.decl);
+                proc_def.* = .init(proc_decl, code_block);
             },
             else => {
                 _ = self.expect(.CurlyOpen, "'{' or ';'") catch |err| {
@@ -178,9 +179,12 @@ pub const Parser = struct {
         }
 
         token = try self.expect(.Ident, "type");
-        const var_type = token.source;
         var arg_def: Ast.Argument = undefined;
-        arg_def.init(var_name, 0, var_type, ptr_depth, mutable);
+        const argument_type = Ast.ExprType{
+            .type = token.source,
+            .info = .{ .ptr_depth = ptr_depth },
+        };
+        arg_def.init(var_name, 0, 0, argument_type, mutable);
         return arg_def;
     }
 
@@ -222,9 +226,9 @@ pub const Parser = struct {
                     },
                     else => {},
                 }
-                if (if_condition.else_expr) |_| switch (if_condition.else_expr.?.*) {
+                if (if_condition.else_expr) |else_expr| switch (else_expr.*) {
                     .Block => {
-                        if_condition.else_expr.?.Block.outer = outer;
+                        else_expr.Block.outer = outer;
                     },
                     else => {},
                 };
@@ -249,7 +253,7 @@ pub const Parser = struct {
             => {},
         }
     }
-    fn parse_block(self: *Self) anyerror!*Ast.Block {
+    fn parse_block(self: *Self, owner_proc: ?*Ast.ProcDecl) anyerror!*Ast.Block {
         _ = try self.expect(.CurlyOpen, null);
 
         const block = try self.module.blocks.create(Ast.Block);
@@ -258,7 +262,7 @@ pub const Parser = struct {
         errdefer statements.deinit();
 
         while (!std.meta.eql(self.tokens.peek(0).?.kind, .CurlyClose)) {
-            const statement = try self.parse_stmt();
+            const statement = try self.parse_stmt(owner_proc);
             switch (statement) {
                 .VarDefStackMut, .VarDefStack => |var_def| {
                     set_outer_if_type_contains_block(&var_def.expr, block);
@@ -275,11 +279,11 @@ pub const Parser = struct {
             std.log.debug("{}\n", .{statement});
         }
         self.tokens.advance(1);
-        block.* = .{ .stmts = statements, .stack_vars = .init(self.module.allocator), .outer = null };
+        block.* = .{ .stmts = statements, .stack_vars = .init(self.module.allocator), .outer = null, .owner_proc = owner_proc };
         return block;
     }
 
-    fn parse_stmt(self: *Self) !Ast.Statement {
+    fn parse_stmt(self: *Self, owner_proc: ?*Ast.ProcDecl) !Ast.Statement {
         var token = self.tokens.peek(0);
         assert(token != null);
         switch (token.?.kind) {
@@ -318,7 +322,7 @@ pub const Parser = struct {
                 var expr: Ast.Expression = .NoOp;
                 if (std.meta.eql(token.?.kind, .{ .Op = .Ass })) {
                     self.tokens.advance(1);
-                    expr = try self.parse_expr();
+                    expr = try self.parse_expr(owner_proc);
                 }
                 _ = self.expect(.Semi, null) catch |err| {
                     self.tokens.peek(0).?.print_loc();
@@ -331,11 +335,11 @@ pub const Parser = struct {
                 }
             },
             .CurlyOpen => {
-                const block = try self.parse_block();
+                const block = try self.parse_block(owner_proc);
                 return .{ .Expr = .{ .Block = block } };
             },
             .Ident => {
-                const lhs = try self.parse_expr();
+                const lhs = try self.parse_expr(owner_proc);
                 _ = self.expect(.Semi, null) catch |err| {
                     self.tokens.peek(0).?.print_loc();
                     return err;
@@ -350,18 +354,18 @@ pub const Parser = struct {
                 return .{ .Expr = lhs };
             },
             .If => {
-                const expr = try self.parse_if_condition();
+                const expr = try self.parse_if_condition(owner_proc);
                 return .{ .Expr = expr };
             },
             .While => {
-                const expr = try self.parse_while_loop();
+                const expr = try self.parse_while_loop(owner_proc);
                 return .{ .Expr = expr };
             },
             .Return => {
                 self.tokens.advance(1);
                 var expr: Ast.Expression = .NoOp;
                 if (!std.meta.eql(self.tokens.peek(0).?.kind, .Semi)) {
-                    expr = try self.parse_expr();
+                    expr = try self.parse_expr(owner_proc);
                 }
                 _ = try self.expect(.Semi, null);
                 return .{ .Return = expr };
@@ -382,7 +386,7 @@ pub const Parser = struct {
             else => unreachable,
         }
     }
-    fn try_parse_exprs_between(self: *Self, paren_start: TokenKind) !ArrayListManaged(Ast.Expression) {
+    fn try_parse_exprs_between(self: *Self, paren_start: TokenKind, owner_proc: ?*Ast.ProcDecl) !ArrayListManaged(Ast.Expression) {
         const paren_end = get_paren_close_for_tok(paren_start);
         var params = ArrayListManaged(Ast.Expression).init(self.allocator);
         if (!std.meta.eql(self.tokens.peek(0).?.kind, paren_start)) {
@@ -395,7 +399,7 @@ pub const Parser = struct {
             return params;
         }
         while (true) {
-            const expr = try self.parse_expr();
+            const expr = try self.parse_expr(owner_proc);
             try params.append(expr);
             const next = self.tokens.peek(0).?;
             if (std.meta.eql(next.kind, paren_end)) {
@@ -466,16 +470,16 @@ pub const Parser = struct {
         }
         return top_field;
     }
-    fn parse_expr(self: *Self) anyerror!Ast.Expression {
+    fn parse_expr(self: *Self, owner_proc: ?*Ast.ProcDecl) anyerror!Ast.Expression {
         var expr: Ast.Expression = undefined;
-        const lhs_expr = try self.parse_unit_expr();
+        const lhs_expr = try self.parse_unit_expr(owner_proc);
 
         const token = self.tokens.peek(0);
 
         switch (token.?.kind) {
             .Op => |kind| {
                 self.tokens.advance(1); // skip the token
-                const rhs_expr = try self.parse_expr();
+                const rhs_expr = try self.parse_expr(owner_proc);
                 expr = .{ .BinOp = try Ast.BinaryOperation.init(self.allocator, kind, lhs_expr, rhs_expr) };
             },
             .ParenOpen, .CurlyOpen, .ParenClose, .CurlyClose, .Semi, .Comma, .If, .Else, .Ident => {
@@ -490,11 +494,12 @@ pub const Parser = struct {
         }
         return expr;
     }
-    pub fn parse_while_loop(self: *Self) anyerror!Ast.Expression {
+    pub fn parse_while_loop(self: *Self, owner_proc: ?*Ast.ProcDecl) anyerror!Ast.Expression {
         _ = self.tokens.consume();
         // parse the condition
-        const cond = try self.parse_expr();
-        const expr = try self.parse_expr();
+        const cond = try self.parse_expr(owner_proc);
+        assert(cond != .Block);
+        const expr = try self.parse_expr(owner_proc);
 
         const cond_duped = try self.allocator.create(Ast.Expression);
         cond_duped.* = cond;
@@ -503,13 +508,13 @@ pub const Parser = struct {
         expr_duped.* = expr;
         return .{ .WhileLoop = .{ .condition = cond_duped, .expression = expr_duped } };
     }
-    pub fn parse_if_condition(self: *Self) anyerror!Ast.Expression {
+    pub fn parse_if_condition(self: *Self, owner_proc: ?*Ast.ProcDecl) anyerror!Ast.Expression {
         var if_condition_expr: Ast.Expression = .{ .IfCondition = .{ .if_ = undefined, .else_expr = null } };
         _ = self.tokens.consume();
         // parse the condition
-        const cond = try self.parse_expr();
+        const cond = try self.parse_expr(owner_proc);
         std.log.debug("condition {}\n", .{cond});
-        const expr = try self.parse_expr();
+        const expr = try self.parse_expr(owner_proc);
         std.log.debug("expression {}\n", .{expr});
         switch (expr) {
             .Block => {},
@@ -526,7 +531,7 @@ pub const Parser = struct {
 
         if (self.tokens.peek(0).?.kind == .Else) {
             _ = self.tokens.consume();
-            const else_expr = try self.parse_expr();
+            const else_expr = try self.parse_expr(owner_proc);
 
             switch (else_expr) {
                 // too lazy to change shit to parse statements instead of expressions
@@ -546,11 +551,11 @@ pub const Parser = struct {
         return if_condition_expr;
     }
 
-    fn parse_plex_def_fields(self: *Self) anyerror!Ast.Expression.PlexDef {
-        const exprs = try self.try_parse_exprs_between(.CurlyOpen);
+    fn parse_plex_def_fields(self: *Self, owner_proc: ?*Ast.ProcDecl) anyerror!Ast.Expression.PlexDef {
+        const exprs = try self.try_parse_exprs_between(.CurlyOpen, owner_proc);
         return .{ .name = undefined, .members = exprs };
     }
-    fn parse_unit_expr(self: *Self) anyerror!Ast.Expression {
+    fn parse_unit_expr(self: *Self, owner_proc: ?*Ast.ProcDecl) anyerror!Ast.Expression {
         var expr: Ast.Expression = undefined;
         const token = self.tokens.peek(0);
         assert(token != null);
@@ -562,13 +567,13 @@ pub const Parser = struct {
 
                 switch (next.kind) {
                     .ParenOpen => {
-                        const next_parsed = try self.parse_expr();
+                        const next_parsed = try self.parse_expr(owner_proc);
                         const params = next_parsed.Tuple; // if there is paren open then it has to be tuple
                         expr = .{ .Call = .{ .name = token.?.source, .params = params } };
                     },
                     .CurlyOpen => {
                         const prev_tokens = self.tokens;
-                        var plex_literal = self.parse_plex_def_fields() catch {
+                        var plex_literal = self.parse_plex_def_fields(owner_proc) catch {
                             self.tokens = prev_tokens;
                             expr = .{ .Var = token.?.source };
                             break :blk;
@@ -581,7 +586,7 @@ pub const Parser = struct {
             },
             .ParenOpen => {
                 // we don't skip the token here as it is '('
-                const tuple = self.try_parse_exprs_between(.ParenOpen) catch |err| {
+                const tuple = self.try_parse_exprs_between(.ParenOpen, owner_proc) catch |err| {
                     switch (err) {
                         Ast.Error.UnexpectedToken => {
                             self.tokens.peek(0).?.print_loc();
@@ -593,11 +598,11 @@ pub const Parser = struct {
                 expr = .{ .Tuple = tuple };
             },
             .If => {
-                expr = try self.parse_if_condition();
+                expr = try self.parse_if_condition(owner_proc);
             },
 
             .While => {
-                expr = try self.parse_while_loop();
+                expr = try self.parse_while_loop(owner_proc);
             },
             .LiteralInt => {
                 self.tokens.advance(1); // skip the token
@@ -608,12 +613,12 @@ pub const Parser = struct {
                 expr = .{ .LiteralString = str };
             },
             .CurlyOpen => {
-                expr = .{ .Block = try self.parse_block() };
+                expr = .{ .Block = try self.parse_block(owner_proc) };
             },
             .Reference => {
                 self.tokens.advance(1); // skip the token
                 const expr_duped = try self.allocator.create(Ast.Expression);
-                expr_duped.* = try self.parse_expr();
+                expr_duped.* = try self.parse_expr(owner_proc);
                 expr = .{ .Reference = expr_duped };
             },
             .ParenClose, .CurlyClose => expr = .NoOp,

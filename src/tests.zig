@@ -9,6 +9,7 @@ const TestFiles = struct {
     const DEFAULT_TEST_DIR = "./tests";
     const DEFAULT_TEST_OUTPUT_DIR = "./.test_output";
     const MAX_OUTPUT_FILE_SIZE = 64 * 1024;
+    const BUILD_FAIL_HARD = true;
     program_cwd: std.fs.Dir = std.fs.cwd(),
     dir: std.fs.Dir = undefined,
     output_dir: std.fs.Dir = undefined,
@@ -63,6 +64,7 @@ const TestFiles = struct {
                 std.log.err("failed to compile test {s} {}\n", .{ input_filename, err });
                 _ = self.filenames.swapRemove(test_file_idx);
                 test_file_idx -= 1;
+                if (BUILD_FAIL_HARD) return err;
                 continue;
             };
             try compiler.build_asm_file(false);
@@ -153,6 +155,7 @@ const TestFiles = struct {
 
             var cmd: nob.Cmd = .init(self.allocator);
             var run_cmd = std.fmt.bufPrint(&path_buffer, "./{s}/{s}", .{ output_dir_name, filename }) catch unreachable;
+            std.debug.print("run cmd is {s}\n", .{run_cmd});
 
             run_cmd = try self.allocator.dupe(u8, run_cmd);
             defer self.allocator.free(run_cmd);

@@ -19,8 +19,8 @@ pub const Module = struct {
     string_literals: ArrayListManaged(StringLiteral),
     arena: std.heap.ArenaAllocator,
     blocks: std.mem.Allocator = undefined,
-    proc_decls: ArrayListManaged(ProcDecl),
-    proc_defs: ArrayListManaged(ProcDef),
+    proc_decls: std.SegmentedList(ProcDecl, 8),
+    proc_defs: std.SegmentedList(ProcDef, 8),
     plex_decl: ArrayListManaged(PlexDecl),
     // TODO(shahzad): @feat add field for user defined types
     total_branches: usize, // for label generation
@@ -29,8 +29,8 @@ pub const Module = struct {
     pub fn init(self: *Self, allocator: Allocator, context: SourceContext) void {
         self.* = .{
             .allocator = allocator,
-            .proc_defs = .init(allocator),
-            .proc_decls = .init(allocator),
+            .proc_defs = .{},
+            .proc_decls = .{},
             .plex_decl = .init(allocator),
             .context = context,
             .string_literals = .init(allocator),
@@ -40,17 +40,19 @@ pub const Module = struct {
         self.blocks = self.arena.allocator();
     }
     pub fn get_proc_decl(self: *Self, name: []const u8) ?ProcDecl {
-        for (self.proc_decls.items) |proc_decl| {
+        var proc_decl_iter = self.proc_decls.iterator(0);
+        while (proc_decl_iter.next()) |proc_decl| {
             if (std.mem.eql(u8, proc_decl.name, name)) {
-                return proc_decl;
+                return proc_decl.*;
             }
         }
         return null;
     }
     pub fn get_proc_def(self: *Self, name: []const u8) ?ProcDef {
-        for (self.proc_defs.items) |proc_def| {
+        var proc_def_iter = self.proc_defs.iterator(0);
+        while (proc_def_iter.next()) |proc_def| {
             if (std.mem.eql(u8, proc_def.decl.name, name)) {
-                return proc_def;
+                return proc_def.*;
             }
         }
         return null;
@@ -112,23 +114,28 @@ pub const BinaryOperation = struct {
     }
 };
 
-// TODO(shahzad)!!!!: @bug arguments don't work after this shit :sob:
 pub const Block = struct {
-    outer: ?*Block,
+    outer: ?*Block, // NOTE(shahzad): @question should this contain outer block?
+    owner_proc: ?*ProcDecl = null,
     stmts: ArrayListManaged(Statement),
     stack_vars: ArrayListManaged(StackVar), // populated in type checking phase
     stack_var_offset: usize = 0,
     const Self = @This();
-    pub fn find_variable_stack(self: *Self, var_name: []const u8) ?StackVar {
+    const AccessedVarType = enum {
+        Argument,
+        Stack,
+    };
+    pub fn find_stack_variable(self: *Self, var_name: []const u8) ?Variable {
         for (self.stack_vars.items) |stack_var| {
             if (std.mem.eql(u8, stack_var.decl.name, var_name)) {
                 return stack_var;
             }
         }
-        if (self.outer) |outer| return outer.find_variable(var_name);
+        if (self.outer) |outer| return outer.find_stack_variable(var_name);
+        assert(self.owner_proc != null);
         return null;
     }
-    pub fn find_local_variable(self: *Self, var_name: []const u8) ?StackVar {
+    pub fn find_scope_variable(self: *Self, var_name: []const u8) ?Variable {
         for (self.stack_vars.items) |stack_var| {
             if (std.mem.eql(u8, stack_var.decl.name, var_name)) {
                 return stack_var;
@@ -136,10 +143,23 @@ pub const Block = struct {
         }
         return null;
     }
-    pub fn find_variable(self: *Self, var_name: []const u8) ?StackVar {
-        // find variable should not return a stack var cause the variable could be
-        // an argument or a global variable
-        return self.find_variable_stack(var_name);
+    pub fn find_argument(self: *Self, arg_name: []const u8) ?Variable {
+        if (self.owner_proc) |proc| {
+            if (proc.get_argument(arg_name)) |arg| {
+                return arg;
+            }
+        }
+
+        // NOTE(shahzad): we don't support anything that's global
+        // for now so this not being null is a bug
+        assert(self.owner_proc != null);
+        return null;
+    }
+    pub fn find_variable(self: *Self, var_name: []const u8) ?struct { AccessedVarType, Variable } {
+        if (self.find_scope_variable(var_name)) |variable| return .{ .Stack, variable };
+        if (self.find_argument(var_name)) |argument| return .{ .Argument, argument };
+        if (self.outer) |outer| return .{ .Stack, outer.find_stack_variable(var_name) orelse return null };
+        unreachable;
     }
 };
 pub const ConditionalExpression = struct {
@@ -230,8 +250,7 @@ pub const VarMetaData = struct {
         return .{ .size = @intCast(size), .is_mut = @bitCast(is_mut) };
     }
 };
-
-pub const StackVar = struct {
+pub const Variable = struct {
     decl: VarDecl,
     meta: VarMetaData,
     offset: u32,
@@ -240,26 +259,17 @@ pub const StackVar = struct {
     pub fn init(self: *Self, name: []const u8, offset: u32, size: usize, @"type": ?ExprType, is_mutable: bool) void {
         self.* = .{ .decl = .{ .name = name, .type = @"type", .expr = undefined }, .meta = .init(size, is_mutable), .offset = offset };
     }
-};
-
-pub const Argument = struct { // @TODO(shahzad): do we really need this? Aren't arguments just variables on stack/register??
-    decl: VarDecl,
-    meta: VarMetaData, // unknown before type checking
-
-    // todo(shahzad): bruh there is too much unknown
-    // should this shit contain offset?
-    // how does procedure args get passed *on stack?
-
-    const Self = @This();
-    pub fn init(self: *Self, name: []const u8, size: u31, @"type": []const u8, ptr: usize, is_mutable: bool) void {
-        self.* = .{ .decl = .init(name, @"type", ptr), .meta = .init(size, is_mutable) };
+    pub fn default() Self {
+        return .{ .decl = .init("default", "DEFAULT_VARIABLE_OR_ARGUMENT", 0), .meta = .init(0, true) };
     }
 };
+pub const StackVar = Variable;
+pub const Argument = Variable;
 // TODO(shahzad): @refactor size should be the part of ExprType
 pub const ProcDecl = struct {
     name: []const u8,
     args_list: ArrayListManaged(Argument),
-    return_type: ExprType, // concrete type?
+    return_type: ExprType,
     return_size: usize,
     const Self = @This();
     pub fn init(name: []const u8, args: ArrayListManaged(Argument), return_type: []const u8, ptr_depth: usize) Self {
@@ -277,7 +287,7 @@ pub const ProcDecl = struct {
         // @TODO(shahzad): impl this function frfr
         return self.args_list;
     }
-    pub fn get_argument(self: *const Self, arg_name: []const u8) Argument {
+    pub fn get_argument(self: *const Self, arg_name: []const u8) ?Argument {
         // TODO(shahzad): @perf this is ass
         for (self.args_list.items) |it| {
             if (std.mem.eql(u8, it.decl.name, arg_name)) {
@@ -298,7 +308,7 @@ pub const ProcDef = struct {
         return .{ .decl = decl, .block = block };
     }
     pub fn get_variable(self: *Self, var_name: []const u8) ?StackVar {
-        return self.decl.get_argument(var_name) orelse self.block.find_local_variable(var_name);
+        return self.decl.get_argument(var_name) orelse self.block.find_scope_variable(var_name);
     }
 };
 
