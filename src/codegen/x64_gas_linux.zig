@@ -286,8 +286,6 @@ pub fn compile_expr(self: *Self, module: *Ast.Module, block: *Ast.Block, expr: *
             return .{ .PlexLiteral = .{ .storage_type = storage_type, .start = offset } };
         },
         .Call => |call_expr| {
-            // @TODO(shahzad)!!!!!: we don't support any function with arity more than one
-
             for (call_expr.params.items, 0..) |param_expr, idx| {
                 var local_storage: Storage = .init(.CallArg, 0);
                 const expr_compiled_to_reg = try self.compile_expr(module, block, &param_expr, storage orelse &local_storage);
