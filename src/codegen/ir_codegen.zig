@@ -13,7 +13,11 @@ program_builder: StringBuilder,
 scratch_buffer: StringBuilder,
 string_arena: StringBuilder,
 computed_values: ArrayListManaged(Operand),
+values: ArrayListManaged(Ir.Value),
 registers: u16 = 0b1111111110000000,
+
+// TODO(shahzad): @scope duplication put this in utils or smth
+const get_value = Ir.get_value;
 
 pub const Register = struct {
     pub const Id = enum(u8) {
@@ -99,23 +103,16 @@ pub fn reg_free(self: *Self, reg: Register) void {
     self.registers ^= @as(u16, @intCast(1)) << @intCast(bit_idx);
 }
 
-pub fn resolve_value(self: *Self, value: *const Ir.Value) Operand {
-    switch (value.*) {
-        .Const => |val| {
-            switch (val) {
-                .Int => |as_int| {
-                    return .{ .Immediate = as_int };
-                },
-            }
-        },
-        .instid => |idx| {
-            return self.computed_values.items[idx];
-        },
-    }
-}
-pub fn init(allocator: Allocator) !Self {
+pub fn init(allocator: Allocator, values: ArrayListManaged(Ir.Value)) !Self {
     var arena = std.heap.ArenaAllocator.init(allocator);
-    const self: Self = .{ .allocator = allocator, .program_builder = .init(allocator), .scratch_buffer = .init(allocator), .string_arena = .init(arena.allocator()), .computed_values = .init(allocator) };
+    const self: Self = .{
+        .allocator = allocator,
+        .program_builder = .init(allocator),
+        .scratch_buffer = .init(allocator),
+        .string_arena = .init(arena.allocator()),
+        .computed_values = .init(allocator),
+        .values = values,
+    };
     return self;
 }
 
@@ -127,14 +124,20 @@ pub fn mov_reg_to_reg(self: *Self, src: Register, dst: Register) !void {
     if (src.id == dst.id) return;
     _ = try self.program_builder.append_fmt("   mov %{s}, %{s}\n", .{ src.to_string(), dst.to_string() });
 }
-pub fn compile_inst(self: *Self, inst: *const Ir.Instruction, bb: *const Ir.BasicBlock) !Operand {
+pub fn compile_inst(self: *Self, inst: *const Ir.Instruction, bb: *const Ir.BasicBlock) anyerror!Operand {
     switch (inst.type) {
         .Add => |as_add| {
-            const lhs = self.resolve_value(&as_add.lhs);
-            const rhs = self.resolve_value(&as_add.rhs);
+            var lhs = try self.resolve_value(get_value(self.values, as_add.lhs), bb);
+            var rhs = try self.resolve_value(get_value(self.values, as_add.rhs), bb);
 
             var lhs_reg: Register = undefined;
 
+            std.debug.print("lhs = {}, rhs = {}\n", .{ lhs, rhs });
+            if (lhs == .Immediate and (rhs == .Register or rhs == .Memory)) {
+                const temp = lhs;
+                lhs = rhs;
+                rhs = temp;
+            }
             const lhs_compiled = blk: switch (lhs) {
                 .Register => |reg| {
                     lhs_reg = reg;
@@ -168,13 +171,15 @@ pub fn compile_inst(self: *Self, inst: *const Ir.Instruction, bb: *const Ir.Basi
                 .Void => unreachable,
             };
             self.scratch_buffer.reset();
-
             _ = try self.program_builder.append_fmt("   add {s}, {s}\n", .{ rhs_compiled, lhs_compiled });
-
+            var dst = get_value(self.values, inst.produces);
+            _ = try self.computed_values.append(.{ .Register = lhs_reg });
+            dst.lowered_operand_idx = self.computed_values.items.len - 1;
             return .{ .Register = lhs_reg };
         },
-        .Return => |as_ret| {
-            const operand = try self.compile_value(&as_ret, bb);
+        .Return => |as_ret_idx| {
+            const value = get_value(self.values, as_ret_idx);
+            const operand = try self.resolve_value(value, bb);
             switch (operand) {
                 .Immediate => |imm_value| {
                     if (!self.is_reg_available(.{ .id = .A })) {
@@ -195,24 +200,31 @@ pub fn compile_inst(self: *Self, inst: *const Ir.Instruction, bb: *const Ir.Basi
                 .Void => unreachable,
             }
         },
+        .Void => {
+            return .Void;
+        },
         else => |unknown| {
             std.debug.print("unknown instruction {}\n", .{unknown});
             unreachable;
         },
     }
 }
-pub fn compile_value(self: *Self, value: *const Ir.Value, bb: *const Ir.BasicBlock) !Operand {
-    switch (value.*) {
+pub fn resolve_value(self: *Self, value: *const Ir.Value, bb: *const Ir.BasicBlock) !Operand {
+    _ = bb;
+    switch (value.type) {
         .Const => |as_const| {
             assert(as_const == .Int);
             return .{ .Immediate = as_const.Int };
         },
-        .instid => |idx| {
-            const inst = bb.inst.items[idx];
+        .ValueId => |idx| {
+            const parent_value = self.values.items[idx];
             // this means we using a value that does not exist
-            assert(inst.lowered_operand_idx != std.math.maxInt(usize));
-            return self.computed_values.items[inst.lowered_operand_idx];
+            assert(parent_value.lowered_operand_idx != std.math.maxInt(usize));
+            return self.computed_values.items[parent_value.lowered_operand_idx];
         },
+        .Result => { 
+            return self.computed_values.items[value.lowered_operand_idx];
+ },
     }
 }
 
@@ -221,7 +233,10 @@ pub fn compile_bb(self: *Self, bb: *const Ir.BasicBlock) !void {
         const operand = try self.compile_inst(inst, bb);
         try self.computed_values.append(operand);
         const idx = self.computed_values.items.len - 1;
-        inst.lowered_operand_idx = idx;
+        // assert(inst.produces != std.math.maxInt(usize)); // NOTE(shahzad): idk
+        if (inst.produces == std.math.maxInt(usize)) continue;
+        const value = get_value(self.values, inst.produces);
+        value.lowered_operand_idx = idx;
     }
     std.debug.print("generated assembly", .{});
     std.debug.print("--------------------------------------------------\n", .{});

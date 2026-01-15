@@ -73,7 +73,7 @@ pub const Compiler = struct {
         };
         var ir = Ir.init(self.allocator);
         var ir_son = try ir.from_proc(module.proc_defs.at(0));
-        self.code_gen = try CodeGen.init(self.allocator);
+        self.code_gen = try CodeGen.init(self.allocator, ir.values);
         try self.code_gen.compile_bb(&ir_son);
         // try self.code_gen.compile_son(&ir_son);
         
