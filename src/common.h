@@ -18,6 +18,8 @@ struct CX_DArrayMeta {
   size_t capacity;
 };
 
+#define nullptr (void *)0
+
 #define CX_Array(T) T *
 
 #define cx_da_foreach(it, da)                                                          \

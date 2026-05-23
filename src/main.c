@@ -7,13 +7,13 @@
 
 int main() {
   Nob_String_Builder sb = {};
-  auto filename = "./examples/while_loop.c4";
+  char const* filename = "./examples/while_loop.c4";
   nob_read_entire_file(filename, &sb);
-  auto contents = nob_sb_to_sv(sb);
+  Nob_String_View contents = nob_sb_to_sv(sb);
 
-  auto source_file = CX_SOURCE(filename, contents.data);
+  struct CX_SourceFile source_file = CX_SOURCE(filename, contents.data);
 
   struct CX_Lexer lexer = {};
-  auto ok = cxl_lex(&lexer, source_file);
+  bool ok = cxl_lex(&lexer, source_file);
   cxp_parse(&lexer);
 }

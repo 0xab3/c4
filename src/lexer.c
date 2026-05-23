@@ -59,7 +59,7 @@ bool cxl_match_multiple(char const *to_match, char x) {
 bool cxl_get_multicharacter_symbol(Nob_String_View sv, enum CX_TokenKind *symbol) {
   if (sv.count <= 1) return false;
   for (size_t i = 0; i < NOB_ARRAY_LEN(CXLEX_MULTI_CHARACTER_SYMBOLS); i++) {
-    auto it = CXLEX_MULTI_CHARACTER_SYMBOLS[i];
+    struct CX_TokenName it = CXLEX_MULTI_CHARACTER_SYMBOLS[i];
     if (nob_sv_starts_with(sv, nob_sv_from_cstr(it.name))) {
       if (symbol) *symbol = it.kind;
       return true;
@@ -121,7 +121,7 @@ bool cxl_get_keyword(Nob_String_View token, enum CX_TokenKind *keyword) {
 struct CX_Token cxl_token_from_string(Nob_String_View string) {
 
   enum CX_TokenKind symbol;
-  auto ok = cxl_get_multicharacter_symbol(string, &symbol);
+  bool ok = cxl_get_multicharacter_symbol(string, &symbol);
   if (ok) return CXLEX_TOKEN_MAKE(symbol, none, 0, string);
 
   ok = cxl_is_symbol(string.data[0]);
@@ -145,11 +145,11 @@ struct CX_Token cxl_token_from_string(Nob_String_View string) {
 bool cxl_lex(struct CX_Lexer *lexer, struct CX_SourceFile file) {
   CX_Array(struct CX_Token) tokens = nullptr;
 
-  auto contents = nob_sv_from_cstr(file.contents);
+  Nob_String_View contents = nob_sv_from_cstr(file.contents);
   while (contents.count > 0) {
-    auto lexeme = cxl_sv_chop_by_token(&contents);
+     Nob_String_View lexeme = cxl_sv_chop_by_token(&contents);
     if (lexeme.count == 0) continue;
-    auto token = cxl_token_from_string(lexeme);
+    struct CX_Token token = cxl_token_from_string(lexeme);
     cx_da_append(tokens, token);
   }
 
@@ -162,7 +162,7 @@ struct CX_Token cxl_token_peek(struct CX_Lexer *lexer) {
   return lexer->tokens[lexer->cursor];
 }
 bool cxl_token_try_peek(struct CX_Lexer *lexer, struct CX_Token *out) {
-  auto tokens_meta = cx_da_meta(lexer->tokens);
+  struct CX_DArrayMeta* tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor < tokens_meta->count && tokens_meta->count > 0) {
     *out = lexer->tokens[lexer->cursor];
     return true;
@@ -171,7 +171,7 @@ bool cxl_token_try_peek(struct CX_Lexer *lexer, struct CX_Token *out) {
 }
 
 void cxl_token_advance(struct CX_Lexer *lexer, size_t by) {
-  auto tokens_meta = cx_da_meta(lexer->tokens);
+  struct CX_DArrayMeta* tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor + by > tokens_meta->count) {
     lexer->cursor = tokens_meta->count;
   } else {
@@ -180,7 +180,7 @@ void cxl_token_advance(struct CX_Lexer *lexer, size_t by) {
 }
 
 bool cxl_token_consume(struct CX_Lexer *lexer, struct CX_Token *out) {
-  auto tokens_meta = cx_da_meta(lexer->tokens);
+  struct CX_DArrayMeta* tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor < tokens_meta->count) {
     *out = lexer->tokens[lexer->cursor++];
     return true;
