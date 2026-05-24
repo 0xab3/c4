@@ -84,7 +84,7 @@ bool cxp_parse_type(CX_Parser *parser, struct CX_Type *type) {
   return true;
 }
 
-bool cxp_parse_tuple(CX_Parser *parser, CX_Array(CX_Expression *) * exprs) {
+bool cxp_parse_tuple(CX_Parser *parser, CX_Tuple *exprs) {
   CX_Lexer *lexer = &parser->lexer;
   CX_Token token = {0};
   if (!cxp_expect(lexer, CX_TOKEN_PAREN_OPEN, &token)) {
@@ -104,7 +104,7 @@ bool cxp_parse_tuple(CX_Parser *parser, CX_Array(CX_Expression *) * exprs) {
       cxl_token_advance(lexer, 1);
     } else {
       if (current_token.kind != CX_TOKEN_PAREN_CLOSE) {
-        CX_LOG_UNEXPECTED_TOKEN(lexer, ",' or '(", current_token);
+        CX_LOG_UNEXPECTED_TOKEN(lexer, ",' or ')", current_token);
         return false;
       }
     }
@@ -117,23 +117,26 @@ bool cxp_parse_tuple(CX_Parser *parser, CX_Array(CX_Expression *) * exprs) {
   return true;
 }
 
-bool cxp_parse_unit_expr(CX_Parser *parser, struct CX_Expression *expr) {
+CX_Expression *cxp_parse_unit_expr(CX_Parser *parser) {
   CX_Lexer *lexer = &parser->lexer;
   CX_Token token = cxl_token_peek(lexer);
   switch (token.kind) {
     case CX_TOKEN_NUMBER: {
+      CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(CX_Expression));
       expr->kind = CX_EXPR_NUMBER;
       expr->_As.number = token._As.number;
       cxl_token_advance(lexer, 1);
-      return true;
+      return expr;
     } break;
     case CX_TOKEN_STRING_LITERAL: {
+      CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(CX_Expression));
       expr->kind = CX_EXPR_LITERAL;
       expr->_As.literal = token._As.literal;
       cxl_token_advance(lexer, 1);
-      return true;
+      return expr;
     } break;
     case CX_TOKEN_IDENTIFIER: {
+      CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(CX_Expression));
       Nob_String_View ident = token._As.identifier;
 
       expr->kind = CX_EXPR_VAR;
@@ -147,7 +150,7 @@ bool cxp_parse_unit_expr(CX_Parser *parser, struct CX_Expression *expr) {
           nob_log(NOB_ERROR,
                   "failed to parse procedure call parameters for '" SV_Fmt "'\n",
                   SV_Arg(ident));
-          return false;
+          return nullptr;
         }
 
         CX_Expression_ProcCall call = {
@@ -157,15 +160,30 @@ bool cxp_parse_unit_expr(CX_Parser *parser, struct CX_Expression *expr) {
         expr->kind = CX_EXPR_CALL;
         expr->_As.call = call;
       }
+      return expr;
 
-      return true;
+    } break;
+    case CX_TOKEN_PAREN_OPEN: {
+      cxl_token_advance(lexer, 1);
+      CX_Expression *expr = cxp_parse_expr(parser, CX_MAX_PRECEDENCE);
 
+      CX_Token cur_tok = {0};
+      if (!cxp_expect(lexer, CX_TOKEN_PAREN_CLOSE, &cur_tok)) {
+        // @note we can actually use this as a tuple if we get expect paren close
+        // or comma but that will make the entire thing too abstract imo so i don't
+        // think we should generalize this
+
+        CX_LOG_UNEXPECTED_TOKEN(lexer, ")", cur_tok);
+        return nullptr;
+      }
+      return expr;
     } break;
     default: {
       printf("failed because yk\n");
+      cx_breakpoint();
     }
   }
-  return false;
+  return nullptr;
 }
 
 CX_Expression *cxp_parse_binop_increasing_precendence(CX_Parser *parser,
@@ -206,8 +224,7 @@ CX_Expression *cxp_parse_binop_increasing_precendence(CX_Parser *parser,
 }
 
 CX_Expression *cxp_parse_expr(CX_Parser *parser, ssize_t min_precedence) {
-  CX_Expression *lhs = arena_alloc(&parser->storage_arena, sizeof(*lhs));
-  cxp_parse_unit_expr(parser, lhs);
+  CX_Expression *lhs = cxp_parse_unit_expr(parser);
 
   while (true) {
     CX_Expression *node =
@@ -372,13 +389,13 @@ enum CX_ParseError cxp_parse_proc_args(CX_Parser *parser,
       cxl_token_advance(lexer, 1);
     } else {
       if (current_token.kind != CX_TOKEN_PAREN_CLOSE) {
-        CX_LOG_UNEXPECTED_TOKEN(lexer, ",' or '(", current_token);
+        CX_LOG_UNEXPECTED_TOKEN(lexer, ",' or ')", current_token);
         return CXPE_UNEXPECTED_TOKEN;
       }
     }
   }
   if (!cxp_expect(lexer, CX_TOKEN_PAREN_CLOSE, &got)) {
-    CX_LOG_UNEXPECTED_TOKEN(lexer, "0' or '(", got);
+    CX_LOG_UNEXPECTED_TOKEN(lexer, ")", got);
     return CXPE_UNEXPECTED_TOKEN;
   }
 

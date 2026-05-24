@@ -27,9 +27,11 @@ typedef struct CX_Type {
 typedef struct CX_Expression_ProcCall CX_Expression_ProcCall;
 typedef struct CX_Expression CX_Expression;
 
+typedef CX_Array(CX_Expression *) CX_Tuple;
+
 struct CX_Expression_ProcCall {
   Nob_String_View proc_name;
-  CX_Array(CX_Expression *) params;
+  CX_Tuple params;
 };
 
 typedef struct CX_BinaryOperation {
@@ -71,7 +73,7 @@ typedef struct CX_Statement {
 
 struct CX_Block {
   struct CX_Statement_VarDecl decl;
-  CX_Array(struct CX_Statement) stmts;
+  CX_Array(CX_Statement) stmts;
 };
 
 typedef struct CX_Argument {

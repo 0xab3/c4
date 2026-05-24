@@ -109,13 +109,12 @@ struct CX_DArrayMeta {
 
 #define CX_LOG_UNEXPECTED_TOKEN(lexer, expected, got_token)                            \
   do {                                                                                 \
-    nob_log(NOB_ERROR, "expected '" expected "' got '%s'!",                            \
-            cxl_token_kind_to_string((got_token).kind));                               \
+    nob_log(NOB_ERROR, "expected '" expected "' got '%s'! %s:%d",                      \
+            cxl_token_kind_to_string((got_token).kind), __FILE__, __LINE__);           \
     cxl_print_token_location((lexer), (got_token));                                    \
   } while (0)
 
-
-#define CX_MAX_PRECEDENCE (ssize_t)SIZE_MAX
+#define CX_MAX_PRECEDENCE (ssize_t) SIZE_MAX
 #define nob_sv(cstr) nob_sv_from_cstr((cstr))
 #define CX_SOURCE(filename, contents)                                                  \
   (struct CX_SourceFile) { filename, contents }
