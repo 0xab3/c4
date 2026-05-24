@@ -1,49 +1,52 @@
 #include "lexer.h"
-#include "../nob.h"
+#include "../our_nob.h"
 #include "common.h"
+#include <bits/posix1_lim.h>
 #include <ctype.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 char const *cxl_token_kind_to_string(enum CX_TokenKind kind) {
   switch (kind) {
-    case CX_TOKEN_CURLY_OPEN    : return "TOKEN({)";
-    case CX_TOKEN_CURLY_CLOSE   : return "TOKEN(})";
-    case CX_TOKEN_PAREN_OPEN    : return "TOKEN(()";
-    case CX_TOKEN_PAREN_CLOSE   : return "TOKEN())";
-    case CX_TOKEN_SEMI          : return "TOKEN(;)";
-    case CX_TOKEN_COLON         : return "TOKEN(:)";
-    case CX_TOKEN_COMMA         : return "TOKEN(,)";
-    case CX_TOKEN_DOT           : return "TOKEN(.)";
-    case CX_TOKEN_NOT           : return "TOKEN(!)";
-    case CX_TOKEN_POINTER       : return "TOKEN(^)";
-    case CX_TOKEN_ASS           : return "TOKEN(=)";
-    case CX_TOKEN_ADD           : return "TOKEN(+)";
-    case CX_TOKEN_SUB           : return "TOKEN(-)";
-    case CX_TOKEN_MUL           : return "TOKEN(*)";
-    case CX_TOKEN_DIV           : return "TOKEN(/)";
-    case CX_TOKEN_GT            : return "TOKEN(>)";
-    case CX_TOKEN_LT            : return "TOKEN(<)";
-    case CX_TOKEN_ARROW         : return "TOKEN(->)";
-    case CX_TOKEN_SUBASS        : return "TOKEN(-=)";
-    case CX_TOKEN_ADDASS        : return "TOKEN(+=)";
-    case CX_TOKEN_MULASS        : return "TOKEN(*=)";
-    case CX_TOKEN_DIVASS        : return "TOKEN(/=)";
-    case CX_TOKEN_EQ            : return "TOKEN(==)";
-    case CX_TOKEN_NEQ           : return "TOKEN(!=)";
-    case CX_TOKEN_LTEQ          : return "TOKEN(<=)";
-    case CX_TOKEN_GTEQ          : return "TOKEN(>=)";
-    case CX_TOKEN_PROCDECL      : return "TOKEN(PROC)";
-    case CX_TOKEN_VARDEF        : return "TOKEN(LET)";
-    case CX_TOKEN_RETURN        : return "TOKEN(RETURN)";
-    case CX_TOKEN_IF            : return "TOKEN(IF)";
-    case CX_TOKEN_ELSE          : return "TOKEN(ELSE)";
-    case CX_TOKEN_WHILE         : return "TOKEN(WHILE)";
-    case CX_TOKEN_PLEX          : return "TOKEN(PLEX)";
-    case CX_TOKEN_STRING_LITERAL: return "TOKEN(STRING_LIT)";
-    case CX_TOKEN_NUMBER        : return "TOKEN(NUMBER)";
-    case CX_TOKEN_IDENTIFIER    : return "TOKEN(IDENTIFIER)";
-    case CX_TOKEN_EOF           : return "TOKEN(EOF)";
+    case CX_TOKEN_CURLY_OPEN    : return "{";
+    case CX_TOKEN_CURLY_CLOSE   : return "}";
+    case CX_TOKEN_PAREN_OPEN    : return "(";
+    case CX_TOKEN_PAREN_CLOSE   : return ")";
+    case CX_TOKEN_SEMI          : return ";";
+    case CX_TOKEN_COLON         : return ":";
+    case CX_TOKEN_COMMA         : return ",";
+    case CX_TOKEN_DOT           : return ".";
+    case CX_TOKEN_NOT           : return "!";
+    case CX_TOKEN_POINTER       : return "^";
+    case CX_TOKEN_ASS           : return "=";
+    case CX_TOKEN_ADD           : return "+";
+    case CX_TOKEN_SUB           : return "-";
+    case CX_TOKEN_MUL           : return "*";
+    case CX_TOKEN_DIV           : return "/";
+    case CX_TOKEN_GT            : return ">";
+    case CX_TOKEN_LT            : return "<";
+    case CX_TOKEN_ARROW         : return "->";
+    case CX_TOKEN_SUBASS        : return "-=";
+    case CX_TOKEN_ADDASS        : return "+=";
+    case CX_TOKEN_MULASS        : return "*=";
+    case CX_TOKEN_DIVASS        : return "/=";
+    case CX_TOKEN_EQ            : return "==";
+    case CX_TOKEN_NEQ           : return "!=";
+    case CX_TOKEN_LTEQ          : return "<=";
+    case CX_TOKEN_GTEQ          : return ">=";
+    case CX_TOKEN_PROCDECL      : return "proc";
+    case CX_TOKEN_VARDEF        : return "let";
+    case CX_TOKEN_RETURN        : return "return";
+    case CX_TOKEN_IF            : return "if";
+    case CX_TOKEN_ELSE          : return "else";
+    case CX_TOKEN_WHILE         : return "while";
+    case CX_TOKEN_PLEX          : return "plex";
+    case CX_TOKEN_STRING_LITERAL: return "string_literal";
+    case CX_TOKEN_NUMBER        : return "number";
+    case CX_TOKEN_IDENTIFIER    : return "identifier";
+    case CX_TOKEN_EOF           : return "eof";
     default                     : CX_UNREACHABLE("unknown token kind %d\n", kind);
   }
 }
@@ -67,7 +70,7 @@ bool cxl_get_multicharacter_symbol(Nob_String_View sv, enum CX_TokenKind *symbol
   }
   return false;
 }
-bool cxl_is_symbol(char x) { return cxl_match_multiple("!=*()-+[]\\/.,;'<>^:", x); }
+bool cxl_is_symbol(char x) { return cxl_match_multiple("!=*(){}-+[]\\/.,;'<>^:", x); }
 
 size_t cxl_get_symbol_width(Nob_String_View *sv) {
   assert(cxl_is_symbol(sv->data[0]));
@@ -118,6 +121,21 @@ bool cxl_get_keyword(Nob_String_View token, enum CX_TokenKind *keyword) {
   return false;
 }
 
+bool cxl__char_is_number(char x) { return (x >= '0' && x <= '9'); }
+CX_Number cxl_string_to_number(Nob_String_View string) {
+
+  assert(cxl__char_is_number(string.data[0]));
+  CX_Number number = 0;
+  size_t i = 0;
+  while (cxl__char_is_number(string.data[i]) && i < string.count) {
+    i64 as_int = (i64)(string.data[i] - '0');
+    assert(as_int >= 0 && as_int <= 9);
+    number = (i64)(number * 10 + as_int);
+    i++;
+  }
+  return number;
+}
+
 struct CX_Token cxl_token_from_string(Nob_String_View string) {
 
   enum CX_TokenKind symbol;
@@ -139,17 +157,35 @@ struct CX_Token cxl_token_from_string(Nob_String_View string) {
 
   // leaves only integer literals now
 
+  ok = cxl__char_is_number(string.data[0]);
+  if (ok) {
+    CX_Number as_num = cxl_string_to_number(string);
+    return CXLEX_TOKEN_MAKE(CX_TOKEN_NUMBER, number, as_num, string);
+  }
+
   return CXLEX_TOKEN_MAKE(CX_TOKEN_IDENTIFIER, identifier, string, string);
 }
 
-bool cxl_lex(struct CX_Lexer *lexer, struct CX_SourceFile file) {
+void cxl_lexer_init(struct CX_Lexer *lexer, struct CX_SourceFile file) {
+  lexer->file = file;
+}
+
+bool cxl_lex(struct CX_Lexer *lexer) {
   CX_Array(struct CX_Token) tokens = nullptr;
 
-  Nob_String_View contents = nob_sv_from_cstr(file.contents);
+  Nob_String_View contents = lexer->file.contents;
   while (contents.count > 0) {
-     Nob_String_View lexeme = cxl_sv_chop_by_token(&contents);
+    Nob_String_View lexeme = cxl_sv_chop_by_token(&contents);
     if (lexeme.count == 0) continue;
     struct CX_Token token = cxl_token_from_string(lexeme);
+    if (token.kind == CX_TOKEN_COMMENT) {
+      size_t to_chop = 0;
+      while (contents.data[to_chop] != '\r' && contents.data[to_chop] != '\n') {
+        to_chop += 1;
+      }
+      nob_sv_chop_left(&contents, to_chop);
+      continue;
+    }
     cx_da_append(tokens, token);
   }
 
@@ -162,7 +198,7 @@ struct CX_Token cxl_token_peek(struct CX_Lexer *lexer) {
   return lexer->tokens[lexer->cursor];
 }
 bool cxl_token_try_peek(struct CX_Lexer *lexer, struct CX_Token *out) {
-  struct CX_DArrayMeta* tokens_meta = cx_da_meta(lexer->tokens);
+  struct CX_DArrayMeta *tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor < tokens_meta->count && tokens_meta->count > 0) {
     *out = lexer->tokens[lexer->cursor];
     return true;
@@ -171,7 +207,7 @@ bool cxl_token_try_peek(struct CX_Lexer *lexer, struct CX_Token *out) {
 }
 
 void cxl_token_advance(struct CX_Lexer *lexer, size_t by) {
-  struct CX_DArrayMeta* tokens_meta = cx_da_meta(lexer->tokens);
+  struct CX_DArrayMeta *tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor + by > tokens_meta->count) {
     lexer->cursor = tokens_meta->count;
   } else {
@@ -180,10 +216,66 @@ void cxl_token_advance(struct CX_Lexer *lexer, size_t by) {
 }
 
 bool cxl_token_consume(struct CX_Lexer *lexer, struct CX_Token *out) {
-  struct CX_DArrayMeta* tokens_meta = cx_da_meta(lexer->tokens);
+  struct CX_DArrayMeta *tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor < tokens_meta->count) {
     *out = lexer->tokens[lexer->cursor++];
     return true;
   }
   return false;
+}
+
+CX_Location cxl_get_token_location(struct CX_Lexer *lexer, CX_Token tok) {
+  CX_Location loc = {1, 1};
+
+  const char *begin = lexer->file.contents.data;
+  const char *ptr = begin;
+  const char *end = tok.position.data;
+
+  while (ptr < end) {
+    if (*ptr == '\n') {
+      loc.line_no++;
+      loc.column = 1;
+    } else {
+      loc.column++;
+    }
+
+    ptr++;
+  }
+
+  return loc;
+}
+
+int _count_digits_base10(u64 x) {
+  int n_digits = 1;
+  while (x /= 10) n_digits++;
+  return n_digits;
+}
+void cxl_print_token_location(struct CX_Lexer *lexer, CX_Token token) {
+  char const *line_start = token.position.data;
+  char const *line_end = token.position.data + token.position.count;
+
+  char const *file_start = lexer->file.contents.data;
+  char const *file_end = file_start + lexer->file.contents.count;
+  while (line_start > file_start && *(line_start - 1) != '\n') {
+    line_start--;
+  }
+
+  if (*line_end != '\n') { // line_end is \n if the token is last on the line
+    while (line_end < file_end && *(line_end + 1) != '\n') {
+      line_end++;
+    }
+  }
+  size_t line_len = (size_t)(line_end - line_start);
+  assert(line_len <= SSIZE_MAX);
+  Nob_String_View line = nob_sv_from_parts(line_start, line_len + 1);
+  line = nob_sv_trim_right(line);
+
+  CX_Location loc = cxl_get_token_location(lexer, token);
+  nob_log(NOB_INFO, " %zu |" SV_Fmt "", loc.line_no, SV_Arg(line));
+
+  size_t tok_offset = (size_t)(token.position.data - line_start);
+  assert(tok_offset <= SSIZE_MAX);
+  int line_no_specifier_len = _count_digits_base10(loc.line_no);
+
+  nob_log(NOB_INFO, " %*s |%*s^", line_no_specifier_len, " ", (int)tok_offset, " ");
 }

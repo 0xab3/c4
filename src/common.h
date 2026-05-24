@@ -1,16 +1,33 @@
 #pragma once
 
+#include "../our_nob.h"
 #include <stddef.h>
 #include <stdint.h>
-struct CX_SourceFile {
+
+typedef int8_t i8;
+typedef int16_t i16;
+typedef int32_t i32;
+typedef int64_t i64;
+
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+typedef struct CX_SourceFile {
   char const *name;
-  char const *contents;
-};
+  Nob_String_View contents;
+} CX_SourceFile;
+
+typedef struct CX_Location {
+  size_t line_no;
+  size_t column;
+} CX_Location;
 
 struct CX_DArrayGeneric {
   size_t count;
   size_t capacity;
-  uint8_t items[];
+  u8 items[];
 };
 
 struct CX_DArrayMeta {
@@ -90,9 +107,20 @@ struct CX_DArrayMeta {
 #define cx_da_free(da) CX_FREE((da))
 #define cx_da_last(da) (da)->items[(CX_ASSERT((da)->count > 0), (da)->count - 1)]
 
+#define CX_LOG_UNEXPECTED_TOKEN(lexer, expected, got_token)                            \
+  do {                                                                                 \
+    nob_log(NOB_ERROR, "expected '" expected "' got '%s'!",                            \
+            cxl_token_kind_to_string((got_token).kind));                               \
+    cxl_print_token_location((lexer), (got_token));                                    \
+  } while (0)
+
+
+#define CX_MAX_PRECEDENCE (ssize_t)SIZE_MAX
+#define nob_sv(cstr) nob_sv_from_cstr((cstr))
 #define CX_SOURCE(filename, contents)                                                  \
   (struct CX_SourceFile) { filename, contents }
 
+#define cx_breakpoint() __asm__("int3")
 #define CX_CAST(type, value) ((type)(value))
 #define CX_UNREACHABLE(...)                                                            \
   do {                                                                                 \
