@@ -5,13 +5,15 @@
 int main(int argc, char **argv) {
   NOB_GO_REBUILD_URSELF(argc, argv);
   Nob_Cmd cmd = {0};
-  nob_cc(&cmd);
-  nob_cmd_append(&cmd, "-std=c23");
+  nob_cmd_append(&cmd, "clang");
+  nob_cmd_append(&cmd, "-std=gnu23");
+  nob_cmd_append(&cmd, "-I./vendor/arena");
+  nob_cmd_append(&cmd, "-Wconversion");
+  nob_cmd_append(&cmd, "-Wall");
+  nob_cmd_append(&cmd, "-Wextra");
+
   nob_cmd_append(&cmd, "-ggdb");
   nob_cmd_append(&cmd, SRC_FOLDER "main.c");
-
-
-  nob_cmd_append(&cmd, "-I./vendor/ht/");
 
   nob_mkdir_if_not_exists(BUILD_FOLDER);
 
@@ -20,10 +22,9 @@ int main(int argc, char **argv) {
     nob_log(NOB_ERROR, "failed to build 3d!");
     return 0;
   }
-  
 
-  const char *_ = nob_shift_args(&argc, &argv);
-  const char *arg = nob_shift_args(&argc, &argv);
+  char const *_ = nob_shift_args(&argc, &argv);
+  char const *arg = nob_shift_args(&argc, &argv);
 
   if (nob_sv_eq(nob_sv_from_cstr(arg), nob_sv_from_cstr("run"))) {
     nob_cmd_append(&cmd, "./build/boom");
