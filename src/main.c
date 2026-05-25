@@ -3,7 +3,7 @@
 
 int main() {
   Nob_String_Builder sb = {0};
-  char const *filename = "./examples/if_conditions.c4";
+  char const *filename = "./examples/while_loop.c4";
   nob_read_entire_file(filename, &sb);
   Nob_String_View contents = nob_sb_to_sv(sb);
 

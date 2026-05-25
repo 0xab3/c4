@@ -27,6 +27,8 @@ static const CX_TokenPrecedence TOKEN_PRECEDENCES[] = {
 
 CX_Expression *cxp_parse_expr(CX_Parser *parser, ssize_t min_precedence);
 CX_Expression *cxp_parse_expr_if_else(CX_Parser *parser);
+CX_Expression *cxp_parse_expr_while(CX_Parser *parser);
+bool cxp_parse_block(CX_Parser *parser, struct CX_Block *block);
 
 bool cxp_expect(struct CX_Lexer *lexer, enum CX_TokenKind expected,
                 struct CX_Token *out) {
@@ -56,6 +58,7 @@ ssize_t cxp_get_precedence(CX_TokenKind kind) {
 bool cxp_is_token_binop(CX_TokenKind kind) {
   switch (kind) {
     case CX_TOKEN_GT:
+    case CX_TOKEN_LT:
     case CX_TOKEN_EQ:
     case CX_TOKEN_ASS:
     case CX_TOKEN_ADD:
@@ -165,7 +168,19 @@ CX_Expression *cxp_parse_unit_expr(CX_Parser *parser) {
       return expr;
 
     } break;
-    case CX_TOKEN_IF        : return cxp_parse_expr_if_else(parser);
+    case CX_TOKEN_IF   : return cxp_parse_expr_if_else(parser);
+    case CX_TOKEN_WHILE: {
+      assert(false);
+      return cxp_parse_expr_while(parser);
+    }
+    case CX_TOKEN_CURLY_OPEN:
+      CX_Expression *block = arena_alloc(&parser->storage_arena, sizeof(*block));
+      block->kind = CX_EXPR_BLOCK;
+      if (!cxp_parse_block(parser, &block->_As.block)) {
+        nob_log(NOB_ERROR, "failed to parse block body!\n");
+        return nullptr;
+      }
+      return block;
     case CX_TOKEN_PAREN_OPEN: {
       cxl_advance(lexer, 1);
       CX_Expression *expr = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
@@ -238,6 +253,35 @@ CX_Expression *cxp_parse_expr(CX_Parser *parser, ssize_t min_precedence) {
   return lhs;
 }
 
+CX_Expression *cxp_parse_expr_while(CX_Parser *parser) {
+  CX_Lexer *lexer = &parser->lexer;
+  CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(*expr));
+  assert(cxp_expect(lexer, CX_TOKEN_WHILE, nullptr));
+
+  CX_Expression *condition = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
+  if (condition == nullptr) {
+    nob_log(NOB_ERROR, "failed to parse condition for while loop!");
+    cxl_print_token_location(lexer, cxl_token_peek(lexer));
+    return nullptr;
+  }
+
+  CX_Expression *body = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
+  if (body == nullptr) {
+    nob_log(NOB_ERROR, "failed to parse body of if condition!");
+    cxl_print_token_location(lexer, cxl_token_peek(lexer));
+    return nullptr;
+  }
+  CX_Token got = {0};
+  if (body->kind != CX_EXPR_BLOCK && !cxp_expect(lexer, CX_TOKEN_SEMI, &got)) {
+    CX_LOG_UNEXPECTED_TOKEN(lexer, ";", got);
+    return nullptr;
+  }
+
+  expr->kind = CX_EXPR_WHILE;
+  expr->_As.while_.condition = condition;
+  expr->_As.while_.then = body;
+  return expr;
+}
 CX_Expression *cxp_parse_expr_if_else(CX_Parser *parser) {
   CX_Lexer *lexer = &parser->lexer;
   CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(*expr));
@@ -270,7 +314,7 @@ CX_Expression *cxp_parse_expr_if_else(CX_Parser *parser) {
       return nullptr;
     }
 
-    if (else_->kind != CX_EXPR_BLOCK && else_->kind != CX_EXPR_IF && 
+    if (else_->kind != CX_EXPR_BLOCK && else_->kind != CX_EXPR_IF &&
         !cxp_expect(lexer, CX_TOKEN_SEMI, &got)) {
       CX_LOG_UNEXPECTED_TOKEN(lexer, ";", got);
       return nullptr;
@@ -369,6 +413,16 @@ bool cxp_parse_stmt(CX_Parser *parser, struct CX_Statement *stmt) {
       stmt->_As.expr = expr;
       return true;
     } break;
+    case CX_TOKEN_WHILE: {
+      stmt->kind = CX_STMT_EXPR;
+      CX_Expression *expr = cxp_parse_expr_while(parser);
+      if (expr == nullptr) {
+        nob_log(NOB_ERROR, "failed to parse while expression!\n");
+        return false;
+      }
+      stmt->_As.expr = expr;
+      return true;
+    } break;
     default: {
       nob_log(NOB_ERROR, "failed to parse statement!\n");
       cxl_print_token_location(lexer, cxl_token_peek(lexer));
@@ -377,13 +431,13 @@ bool cxp_parse_stmt(CX_Parser *parser, struct CX_Statement *stmt) {
   }
   CX_UNREACHABLE("self explanatory");
 }
-enum CX_ParseError cxp_parse_block(CX_Parser *parser, struct CX_Block *block) {
+bool cxp_parse_block(CX_Parser *parser, struct CX_Block *block) {
   CX_Lexer *lexer = &parser->lexer;
   CX_Token token = {0};
 
   if (!cxp_expect(lexer, CX_TOKEN_CURLY_OPEN, &token)) {
     CX_LOG_UNEXPECTED_TOKEN(lexer, "{", token);
-    return CXPE_UNEXPECTED_TOKEN;
+    return false;
   }
 
   while (cxl_token_peek(lexer).kind != CX_TOKEN_CURLY_CLOSE) {
@@ -391,16 +445,16 @@ enum CX_ParseError cxp_parse_block(CX_Parser *parser, struct CX_Block *block) {
 
     if (!cxp_parse_stmt(parser, &stmt)) {
       nob_log(NOB_ERROR, "failed to parse statement!");
-      return CXPE_UNEXPECTED_TOKEN;
+      return false;
     }
     cx_da_append(block->stmts, stmt);
   }
 
   if (!cxp_expect(lexer, CX_TOKEN_CURLY_CLOSE, &token)) {
     CX_LOG_UNEXPECTED_TOKEN(lexer, "}", token);
-    return CXPE_UNEXPECTED_TOKEN;
+    return false;
   }
-  return CXPE_OK;
+  return true;
 }
 
 enum CX_ParseError cxp_parse_proc_args(CX_Parser *parser,
@@ -460,7 +514,7 @@ enum CX_ParseError cxp_parse_proc_args(CX_Parser *parser,
 
   return CXPE_OK;
 }
-enum CX_ParseError cxp_parse_proc(CX_Parser *parser, struct CX_Procedure *proc) {
+bool cxp_parse_proc(CX_Parser *parser, struct CX_Procedure *proc) {
   CX_Lexer *lexer = &parser->lexer;
   assert(cxp_expect(lexer, CX_TOKEN_PROCDECL, nullptr)); // basically unreachable
 
@@ -469,7 +523,7 @@ enum CX_ParseError cxp_parse_proc(CX_Parser *parser, struct CX_Procedure *proc) 
 
   if (!cxp_expect(lexer, CX_TOKEN_IDENTIFIER, &proc_name_tok)) {
     CX_LOG_UNEXPECTED_TOKEN(lexer, "procedure name", proc_name_tok);
-    return CXPE_UNEXPECTED_TOKEN;
+    return false;
   }
 
   CX_Array(struct CX_Argument) args = nullptr;
@@ -478,14 +532,14 @@ enum CX_ParseError cxp_parse_proc(CX_Parser *parser, struct CX_Procedure *proc) 
 
   if (!cxp_expect(lexer, CX_TOKEN_ARROW, &got_token)) {
     CX_LOG_UNEXPECTED_TOKEN(lexer, "->", got_token);
-    return CXPE_UNEXPECTED_TOKEN;
+    return false;
   }
 
   struct CX_Type return_type = {0};
   if (!cxp_parse_type(parser, &return_type)) {
     nob_log(NOB_ERROR, "failed to parse return type for procedure '" SV_Fmt "'!\n",
             SV_Arg(proc_name_tok._As.identifier));
-    return CXPE_UNEXPECTED_TOKEN;
+    return false;
   }
 
   *proc = (struct CX_Procedure){.decl = {
@@ -498,12 +552,12 @@ enum CX_ParseError cxp_parse_proc(CX_Parser *parser, struct CX_Procedure *proc) 
   struct CX_Token token = cxl_token_peek(lexer);
   if (token.kind == CX_TOKEN_SEMI) {
     cxl_advance(lexer, 1);
-    return CXPE_OK;
+    return true;
   } else {
     got_token = cxl_token_peek(lexer);
     if (got_token.kind != CX_TOKEN_CURLY_OPEN) {
       CX_LOG_UNEXPECTED_TOKEN(lexer, "}", got_token);
-      return CXPE_UNEXPECTED_TOKEN;
+      return false;
     }
   }
 
@@ -517,6 +571,7 @@ void cxp_parser_new(CX_Parser *parser, struct CX_Lexer lexer) {
   };
 }
 void cxp_parse(CX_Parser *parser) {
+  cx_breakpoint();
   CX_Lexer *lexer = &parser->lexer;
   struct CX_Token token;
   bool token_ok = true;
@@ -550,8 +605,8 @@ void cxp_parse(CX_Parser *parser) {
       case CX_TOKEN_GTEQ       : CX_UNREACHABLE("CX_TOKEN_GTEQ");
       case CX_TOKEN_PROCDECL   : {
         struct CX_Procedure proc = {};
-        enum CX_ParseError err = cxp_parse_proc(parser, &proc);
-        if (err != CXPE_OK) {
+        bool ok = cxp_parse_proc(parser, &proc);
+        if (!ok) {
           printf("failed to parse procedure\n");
           CX_Token current_token = cxl_token_peek(&parser->lexer);
           cxl_print_token_location(&parser->lexer, current_token);
