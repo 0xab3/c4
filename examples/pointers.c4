@@ -1,11 +1,11 @@
 proc printf(fmt: ^x8, y: x32) -> void;
 
 plex temp2 {
-  y: x32,
+  y: x32;
 }
 
 plex temp {
-  x: ^temp2,
+  x: ^temp2;
 }
 proc main() -> void {
   let y: temp2 = temp2{6969};

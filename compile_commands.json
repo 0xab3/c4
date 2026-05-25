@@ -1,0 +1,19 @@
+[
+  {
+    "file": "src/main.c",
+    "arguments": [
+      "/usr/bin/clang",
+      "-std=gnu23",
+      "-I./vendor/arena",
+      "-Wconversion",
+      "-Wall",
+      "-Wextra",
+      "-ggdb",
+      "src/main.c",
+      "-o",
+      "build/boom"
+    ],
+    "directory": "/home/okabe/programs/c/language",
+    "output": "build/boom"
+  }
+]

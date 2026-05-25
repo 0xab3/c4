@@ -1,0 +1,21 @@
+    CX_TOKEN_LSHIFT,          << 
+    CX_TOKEN_RSHIFT,          >> 
+    CX_TOKEN_LOGICAL_AND,     && 
+    CX_TOKEN_LOGICAL_OR,      || 
+    CX_TOKEN_PLUS_EQ,         += 
+    CX_TOKEN_MINUS_EQ,        -= 
+    CX_TOKEN_MUL_EQ,          *= 
+    CX_TOKEN_DIV_EQ,          /= 
+    CX_TOKEN_MOD_EQ,          %= 
+    CX_TOKEN_LSHIFT_EQ,       <<=
+    CX_TOKEN_RSHIFT_EQ,       >>=
+    CX_TOKEN_AND_EQ,          &= 
+    CX_TOKEN_XOR_EQ,          ^= 
+    CX_TOKEN_OR_EQ,           |= 
+
+    // not in the list
+    CX_TOKEN_MOD,             /* % */
+    CX_TOKEN_XOR,             /* ~ (if used as XOR) */
+    CX_TOKEN_AMP,             /* & (address-of / bitwise AND) */
+    CX_TOKEN_BAR,             /* | (bitwise OR) */
+    CX_TOKEN_TILDE,           /* ~ (bitwise NOT) */
