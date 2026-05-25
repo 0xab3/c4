@@ -5,7 +5,6 @@
 #include <stdint.h>
 typedef i64 CX_Number;
 
-
 typedef enum CX_TokenKind {
   CX_TOKEN_CURLY_OPEN = '{',
   CX_TOKEN_CURLY_CLOSE = '}',
@@ -16,7 +15,7 @@ typedef enum CX_TokenKind {
   CX_TOKEN_COMMA = ',',
   CX_TOKEN_DOT = '.',
   CX_TOKEN_NOT = '!',
-  CX_TOKEN_POINTER = '^',
+  CX_TOKEN_REF = '^',
   CX_TOKEN_CAST = '\'',
   CX_TOKEN_ASS = '=',
   CX_TOKEN_ADD = '+',
@@ -30,6 +29,7 @@ typedef enum CX_TokenKind {
   // multi character symbols
   CX_TOKEN_ARROW = 128,
 
+  CX_TOKEN_DEREF,
   CX_TOKEN_SUBASS,
   CX_TOKEN_ADDASS,
   CX_TOKEN_MULASS,
@@ -59,14 +59,6 @@ typedef enum CX_TokenKind {
   CX_TOKEN_EOF,
 } CX_TokenKind;
 
-typedef enum CX_Operand {
-  CX_OP_ADD = CX_TOKEN_ADD,
-  CX_OP_SUB = CX_TOKEN_SUB,
-  CX_OP_MUL = CX_TOKEN_MUL,
-  CX_OP_DIV = CX_TOKEN_DIV,
-  CX_OP_EQ = CX_TOKEN_EQ,
-} CX_Operand;
-
 typedef struct CX_Token {
   enum CX_TokenKind kind;
   union {
@@ -92,7 +84,7 @@ struct CX_TokenName CXLEX_MULTI_CHARACTER_SYMBOLS[] = {
     {"->", CX_TOKEN_ARROW},   {"-=", CX_TOKEN_SUBASS},    {"+=", CX_TOKEN_ADDASS},
     {"*=", CX_TOKEN_MULASS},  {"/=", CX_TOKEN_DIVASS},    {"==", CX_TOKEN_EQ},
     {"!=", CX_TOKEN_NEQ},     {"<=", CX_TOKEN_LTEQ},      {">=", CX_TOKEN_GTEQ},
-    {"//", CX_TOKEN_COMMENT}, {"''", CX_TOKEN_UNDEFINED},
+    {"//", CX_TOKEN_COMMENT}, {"''", CX_TOKEN_UNDEFINED}, {".^", CX_TOKEN_DEREF},
 };
 
 typedef struct CX_Lexer {

@@ -19,7 +19,7 @@ char const *cxl_token_kind_to_string(enum CX_TokenKind kind) {
     case CX_TOKEN_COMMA         : return ",";
     case CX_TOKEN_DOT           : return ".";
     case CX_TOKEN_NOT           : return "!";
-    case CX_TOKEN_POINTER       : return "^";
+    case CX_TOKEN_REF     : return "^";
     case CX_TOKEN_ASS           : return "=";
     case CX_TOKEN_ADD           : return "+";
     case CX_TOKEN_SUB           : return "-";
@@ -47,6 +47,7 @@ char const *cxl_token_kind_to_string(enum CX_TokenKind kind) {
     case CX_TOKEN_NUMBER        : return "number";
     case CX_TOKEN_IDENTIFIER    : return "identifier";
     case CX_TOKEN_EOF           : return "eof";
+    case CX_TOKEN_DEREF   : return ".^";
     default                     : CX_UNREACHABLE("unknown token kind %d\n", kind);
   }
 }

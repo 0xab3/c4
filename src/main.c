@@ -3,7 +3,7 @@
 
 int main() {
   Nob_String_Builder sb = {0};
-  char const *filename = "./examples/while_loop.c4";
+  char const *filename = "./examples/pointers.c4";
   nob_read_entire_file(filename, &sb);
   Nob_String_View contents = nob_sb_to_sv(sb);
 
@@ -15,6 +15,7 @@ int main() {
   assert(ok);
 
   CX_Parser parser = {0};
-  cxp_parser_new(&parser, lexer);
-  cxp_parse(&parser);
+  cxp_parser_init(&parser, lexer);
+  CX_Module *mod = cxp_parse(&parser);
+  NOB_UNUSED(mod);
 }
