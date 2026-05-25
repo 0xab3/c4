@@ -206,7 +206,7 @@ bool cxl_token_try_peek(struct CX_Lexer *lexer, struct CX_Token *out) {
   return false;
 }
 
-void cxl_token_advance(struct CX_Lexer *lexer, size_t by) {
+void cxl_advance(struct CX_Lexer *lexer, size_t by) {
   struct CX_DArrayMeta *tokens_meta = cx_da_meta(lexer->tokens);
   if (lexer->cursor + by > tokens_meta->count) {
     lexer->cursor = tokens_meta->count;

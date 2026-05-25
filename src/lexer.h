@@ -108,7 +108,7 @@ typedef struct CX_Lexer {
   (struct CX_Token){.kind = _kind, ._As._field = value, .position = _position};
 
 bool cxl_token_consume(struct CX_Lexer *lexer, struct CX_Token *out);
-void cxl_token_advance(struct CX_Lexer *lexer, size_t by);
+void cxl_advance(struct CX_Lexer *lexer, size_t by);
 struct CX_Token cxl_token_peek(struct CX_Lexer *lexer);
 bool cxl_token_try_peek(struct CX_Lexer *lexer, struct CX_Token *out);
 char const *cxl_token_kind_to_string(enum CX_TokenKind kind);

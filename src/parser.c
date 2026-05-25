@@ -26,6 +26,7 @@ static const CX_TokenPrecedence TOKEN_PRECEDENCES[] = {
     {CX_TOKEN_CURLY_CLOSE, 0}, {CX_TOKEN_PAREN_CLOSE, 0}};
 
 CX_Expression *cxp_parse_expr(CX_Parser *parser, ssize_t min_precedence);
+CX_Expression *cxp_parse_expr_if_else(CX_Parser *parser);
 
 bool cxp_expect(struct CX_Lexer *lexer, enum CX_TokenKind expected,
                 struct CX_Token *out) {
@@ -36,7 +37,7 @@ bool cxp_expect(struct CX_Lexer *lexer, enum CX_TokenKind expected,
   bool ok = cxl_token_try_peek(lexer, out);
   assert(ok);
   if (out->kind == expected) {
-    cxl_token_advance(lexer, 1);
+    cxl_advance(lexer, 1);
     return true;
   }
   return false;
@@ -55,6 +56,7 @@ ssize_t cxp_get_precedence(CX_TokenKind kind) {
 bool cxp_is_token_binop(CX_TokenKind kind) {
   switch (kind) {
     case CX_TOKEN_GT:
+    case CX_TOKEN_EQ:
     case CX_TOKEN_ASS:
     case CX_TOKEN_ADD:
     case CX_TOKEN_SUB:
@@ -69,7 +71,7 @@ bool cxp_parse_type(CX_Parser *parser, struct CX_Type *type) {
   CX_Lexer *lexer = &parser->lexer;
   struct CX_Token token = {};
   while (cxl_token_try_peek(lexer, &token) && token.kind == CX_TOKEN_POINTER) {
-    cxl_token_advance(lexer, 1);
+    cxl_advance(lexer, 1);
     type->ptr_depth++;
   }
   if (token.kind != CX_TOKEN_IDENTIFIER) {
@@ -80,7 +82,7 @@ bool cxp_parse_type(CX_Parser *parser, struct CX_Type *type) {
     return false;
   }
   type->inner = token._As.identifier;
-  cxl_token_advance(lexer, 1);
+  cxl_advance(lexer, 1);
   return true;
 }
 
@@ -93,7 +95,7 @@ bool cxp_parse_tuple(CX_Parser *parser, CX_Tuple *exprs) {
   }
 
   while (cxl_token_peek(lexer).kind != CX_TOKEN_PAREN_CLOSE) {
-    CX_Expression *expr = cxp_parse_expr(parser, CX_MAX_PRECEDENCE);
+    CX_Expression *expr = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
     if (!expr) {
       nob_log(NOB_ERROR, "failed to parse expression while parsing tuple!");
     }
@@ -101,7 +103,7 @@ bool cxp_parse_tuple(CX_Parser *parser, CX_Tuple *exprs) {
 
     struct CX_Token current_token = cxl_token_peek(lexer);
     if (current_token.kind == CX_TOKEN_COMMA) {
-      cxl_token_advance(lexer, 1);
+      cxl_advance(lexer, 1);
     } else {
       if (current_token.kind != CX_TOKEN_PAREN_CLOSE) {
         CX_LOG_UNEXPECTED_TOKEN(lexer, ",' or ')", current_token);
@@ -125,14 +127,14 @@ CX_Expression *cxp_parse_unit_expr(CX_Parser *parser) {
       CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(CX_Expression));
       expr->kind = CX_EXPR_NUMBER;
       expr->_As.number = token._As.number;
-      cxl_token_advance(lexer, 1);
+      cxl_advance(lexer, 1);
       return expr;
     } break;
     case CX_TOKEN_STRING_LITERAL: {
       CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(CX_Expression));
       expr->kind = CX_EXPR_LITERAL;
       expr->_As.literal = token._As.literal;
-      cxl_token_advance(lexer, 1);
+      cxl_advance(lexer, 1);
       return expr;
     } break;
     case CX_TOKEN_IDENTIFIER: {
@@ -142,7 +144,7 @@ CX_Expression *cxp_parse_unit_expr(CX_Parser *parser) {
       expr->kind = CX_EXPR_VAR;
       expr->_As.var_name = ident;
 
-      cxl_token_advance(lexer, 1);
+      cxl_advance(lexer, 1);
       token = cxl_token_peek(lexer);
       if (token.kind == CX_TOKEN_PAREN_OPEN) {
         CX_Array(CX_Expression *) tuple = nullptr;
@@ -163,9 +165,10 @@ CX_Expression *cxp_parse_unit_expr(CX_Parser *parser) {
       return expr;
 
     } break;
+    case CX_TOKEN_IF        : return cxp_parse_expr_if_else(parser);
     case CX_TOKEN_PAREN_OPEN: {
-      cxl_token_advance(lexer, 1);
-      CX_Expression *expr = cxp_parse_expr(parser, CX_MAX_PRECEDENCE);
+      cxl_advance(lexer, 1);
+      CX_Expression *expr = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
 
       CX_Token cur_tok = {0};
       if (!cxp_expect(lexer, CX_TOKEN_PAREN_CLOSE, &cur_tok)) {
@@ -211,7 +214,7 @@ CX_Expression *cxp_parse_binop_increasing_precendence(CX_Parser *parser,
   if (next_prec <= min_prec) { // if precedence is not increasing
     return left;
   } else {
-    cxl_token_advance(lexer, 1);
+    cxl_advance(lexer, 1);
     CX_Expression *right_expr = cxp_parse_expr(parser, next_prec);
     if (!right_expr) {
       assert(false);
@@ -235,13 +238,58 @@ CX_Expression *cxp_parse_expr(CX_Parser *parser, ssize_t min_precedence) {
   return lhs;
 }
 
+CX_Expression *cxp_parse_expr_if_else(CX_Parser *parser) {
+  CX_Lexer *lexer = &parser->lexer;
+  CX_Expression *expr = arena_alloc(&parser->storage_arena, sizeof(*expr));
+  assert(cxp_expect(lexer, CX_TOKEN_IF, nullptr));
+  CX_Expression *condition = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
+  if (condition == nullptr) {
+    nob_log(NOB_ERROR, "failed to parse condition for if condition!");
+    cxl_print_token_location(lexer, cxl_token_peek(lexer));
+    return nullptr;
+  }
+
+  CX_Expression *body = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
+  if (body == nullptr) {
+    nob_log(NOB_ERROR, "failed to parse body of if condition!");
+    cxl_print_token_location(lexer, cxl_token_peek(lexer));
+    return nullptr;
+  }
+  CX_Token got = {0};
+  if (body->kind != CX_EXPR_BLOCK && !cxp_expect(lexer, CX_TOKEN_SEMI, &got)) {
+    CX_LOG_UNEXPECTED_TOKEN(lexer, ";", got);
+    return nullptr;
+  }
+  CX_Expression *else_ = nullptr;
+  if (cxl_token_peek(lexer).kind == CX_TOKEN_ELSE) {
+    cxl_advance(lexer, 1);
+    else_ = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
+    if (else_ == nullptr) {
+      nob_log(NOB_ERROR, "failed to parse else body!");
+      cxl_print_token_location(lexer, cxl_token_peek(lexer));
+      return nullptr;
+    }
+
+    if (else_->kind != CX_EXPR_BLOCK && else_->kind != CX_EXPR_IF && 
+        !cxp_expect(lexer, CX_TOKEN_SEMI, &got)) {
+      CX_LOG_UNEXPECTED_TOKEN(lexer, ";", got);
+      return nullptr;
+    }
+  }
+  expr->kind = CX_EXPR_IF;
+  expr->_As.if_.condition = condition;
+  expr->_As.if_.then = body;
+  expr->_As.if_.else_ = else_;
+  return expr;
+}
+
 bool cxp_parse_stmt_vardef(CX_Parser *parser, CX_Statement *stmt) {
   CX_Lexer *lexer = &parser->lexer;
   CX_Token name = {0};
   CX_Type var_type = {0};
   CX_Expression *value = nullptr;
 
-  cxl_token_advance(lexer, 1);
+  cxl_advance(lexer, 1);
 
   if (!cxp_expect(lexer, CX_TOKEN_IDENTIFIER, &name)) {
     CX_LOG_UNEXPECTED_TOKEN(lexer, "var_name", name);
@@ -269,7 +317,7 @@ AFTER_TYPE_PARSING:
     return false;
   }
 
-  value = cxp_parse_expr(parser, CX_MAX_PRECEDENCE);
+  value = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
   if (!value) {
     nob_log(NOB_ERROR, "unable to parse expression!");
     return false;
@@ -295,10 +343,11 @@ bool cxp_parse_stmt(CX_Parser *parser, struct CX_Statement *stmt) {
     case CX_TOKEN_VARDEF: {
       return cxp_parse_stmt_vardef(parser, stmt);
     } break;
+
     case CX_TOKEN_IDENTIFIER: {
       stmt->kind = CX_STMT_EXPR;
 
-      CX_Expression *expr = cxp_parse_expr(parser, CX_MAX_PRECEDENCE);
+      CX_Expression *expr = cxp_parse_expr(parser, CX_MIN_PRECEDENCE);
       stmt->_As.expr = expr;
       if (expr == nullptr) return false;
 
@@ -309,6 +358,16 @@ bool cxp_parse_stmt(CX_Parser *parser, struct CX_Statement *stmt) {
 
       return true;
 
+    } break;
+    case CX_TOKEN_IF: {
+      stmt->kind = CX_STMT_EXPR;
+      CX_Expression *expr = cxp_parse_expr_if_else(parser);
+      if (expr == nullptr) {
+        nob_log(NOB_ERROR, "failed to parse if expression!\n");
+        return false;
+      }
+      stmt->_As.expr = expr;
+      return true;
     } break;
     default: {
       nob_log(NOB_ERROR, "failed to parse statement!\n");
@@ -386,7 +445,7 @@ enum CX_ParseError cxp_parse_proc_args(CX_Parser *parser,
 
     struct CX_Token current_token = cxl_token_peek(lexer);
     if (current_token.kind == CX_TOKEN_COMMA) {
-      cxl_token_advance(lexer, 1);
+      cxl_advance(lexer, 1);
     } else {
       if (current_token.kind != CX_TOKEN_PAREN_CLOSE) {
         CX_LOG_UNEXPECTED_TOKEN(lexer, ",' or ')", current_token);
@@ -438,7 +497,7 @@ enum CX_ParseError cxp_parse_proc(CX_Parser *parser, struct CX_Procedure *proc) 
 
   struct CX_Token token = cxl_token_peek(lexer);
   if (token.kind == CX_TOKEN_SEMI) {
-    cxl_token_advance(lexer, 1);
+    cxl_advance(lexer, 1);
     return CXPE_OK;
   } else {
     got_token = cxl_token_peek(lexer);

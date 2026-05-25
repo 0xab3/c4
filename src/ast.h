@@ -15,6 +15,7 @@ enum CX_ExpressionKind {
   CX_EXPR_BINOP,
 
   CX_EXPR_PROCDECL,
+  CX_EXPR_IF,
   CX_EXPR_PROC,
   CX_EXPR_BLOCK,
 };
@@ -34,6 +35,12 @@ struct CX_Expression_ProcCall {
   CX_Tuple params;
 };
 
+typedef struct CX_Expression_IfCondition {
+  CX_Expression *condition;
+  CX_Expression *then;
+  CX_Expression *else_;
+} CX_Expression_IfCondition;
+
 typedef struct CX_BinaryOperation {
   enum CX_Operand op;
   struct CX_Expression *left;
@@ -48,13 +55,13 @@ struct CX_Expression {
     Nob_String_View var_name;
     CX_Expression_ProcCall call;
     CX_BinaryOperation binop;
+    CX_Expression_IfCondition if_;
   } _As;
 };
 
 enum CX_StatementKind {
   CX_STMT_VARDECL,
   CX_STMT_EXPR,
-  CX_STMT_IF,
 };
 
 typedef struct CX_Statement_VarDecl {

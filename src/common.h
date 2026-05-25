@@ -114,7 +114,7 @@ struct CX_DArrayMeta {
     cxl_print_token_location((lexer), (got_token));                                    \
   } while (0)
 
-#define CX_MAX_PRECEDENCE (ssize_t) SIZE_MAX
+#define CX_MIN_PRECEDENCE (ssize_t) SIZE_MAX
 #define nob_sv(cstr) nob_sv_from_cstr((cstr))
 #define CX_SOURCE(filename, contents)                                                  \
   (struct CX_SourceFile) { filename, contents }
